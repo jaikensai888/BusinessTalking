@@ -68,7 +68,16 @@ export async function GET(req: Request) {
   const items = await prisma.discussion.findMany({
     orderBy: { createdAt: "desc" },
     take: pageSize,
-    select: { id: true, brief: true, rounds: true, status: true, personaIds: true, attachmentName: true, createdAt: true },
+    select: {
+      id: true,
+      brief: true,
+      rounds: true,
+      status: true,
+      personaIds: true,
+      attachmentName: true,
+      createdAt: true,
+      _count: { select: { artifacts: true } },
+    },
   });
   return ok({
     items: items.map((i) => {
@@ -80,6 +89,7 @@ export async function GET(req: Request) {
         status: i.status,
         personaCount: personaIds.length,
         attachmentName: i.attachmentName,
+        artifactCount: i._count.artifacts,
         createdAt: i.createdAt,
       };
     }),

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, ChatCircleDots, CheckCircle, Clock, FilePdf, Play, Trash, XCircle } from "@phosphor-icons/react";
+import { ArrowRight, ChatCircleDots, Check, CheckCircle, Clock, FilePdf, FileText, Play, Trash, XCircle } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
 
@@ -14,6 +14,8 @@ interface Space {
   status: "pending" | "running" | "ready" | "done" | "failed" | "cancelled";
   meta: string;
   attachmentName?: string | null;
+  artifactCount?: number;
+  hasReport?: boolean;
   createdAt: string;
 }
 
@@ -28,18 +30,25 @@ const STATUS_META: Record<string, { label: string; badge: BadgeVariant; icon: Re
 
 /**
  * 会话空间卡片：合并讨论 + 分析运行，按最新排序。
- * 传入 onDelete 时每张卡片显示删除按钮（type + id）。
+ * - onDelete 传入时单卡显示删除按钮。
+ * - selectionMode + selectedKeys + onToggleSelect 时进入批量选择（点卡片切换选中）。
  */
 export function SpacesCards({
   refreshKey,
   onNew,
   onDelete,
   maxItems = 24,
+  selectionMode = false,
+  selectedKeys,
+  onToggleSelect,
 }: {
   refreshKey: number;
   onNew?: () => void;
   onDelete?: (type: "discussion" | "run", id: string) => void;
   maxItems?: number;
+  selectionMode?: boolean;
+  selectedKeys?: Set<string>;
+  onToggleSelect?: (key: string) => void;
 }) {
   const router = useRouter();
   const [spaces, setSpaces] = useState<Space[]>([]);
@@ -54,7 +63,7 @@ export function SpacesCards({
         fetch(`/api/v1/runs?page_size=${fetchLimit}`).then((r) => r.json()),
       ]);
 
-      const dSpaces: Space[] = disc.code === 0 ? disc.data.items.map((i: { id: string; brief: string; status: string; personaCount?: number; attachmentName?: string | null; createdAt: string }) => ({
+      const dSpaces: Space[] = disc.code === 0 ? disc.data.items.map((i: { id: string; brief: string; status: string; personaCount?: number; attachmentName?: string | null; artifactCount?: number; createdAt: string }) => ({
         id: i.id,
         type: "discussion",
         title: i.brief.slice(0, 24),
@@ -62,16 +71,18 @@ export function SpacesCards({
         status: i.status,
         meta: i.personaCount === 1 ? "1 对 1" : "讨论",
         attachmentName: i.attachmentName,
+        artifactCount: i.artifactCount ?? 0,
         createdAt: i.createdAt,
       })) : [];
 
-      const rSpaces: Space[] = runs.code === 0 ? runs.data.items.map((i: { id: string; recipeName: string; status: string; ideaPreview: string; createdAt: string }) => ({
+      const rSpaces: Space[] = runs.code === 0 ? runs.data.items.map((i: { id: string; recipeName: string; status: string; ideaPreview: string; hasReport?: boolean; createdAt: string }) => ({
         id: i.id,
         type: "run",
         title: i.recipeName,
         preview: i.ideaPreview,
         status: i.status,
         meta: "分析",
+        hasReport: i.hasReport,
         createdAt: i.createdAt,
       })) : [];
 
@@ -93,7 +104,6 @@ export function SpacesCards({
   }
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
@@ -129,42 +139,59 @@ export function SpacesCards({
   }
 
   return (
-    <div className="grid gap-5 [grid-template-columns:repeat(auto-fill,minmax(250px,1fr))]">
+    <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(250px,1fr))]">
       {spaces.map((s, i) => {
         const meta = STATUS_META[s.status] ?? STATUS_META.pending;
         const IconComponent = meta.icon;
         const isDisc = s.type === "discussion";
         const href = isDisc ? `/discussions?id=${s.id}` : `/runs/${s.id}`;
+        const key = `${s.type}:${s.id}`;
+        const isSelected = selectedKeys?.has(key) ?? false;
+        const hasProduct = isDisc ? (s.artifactCount ?? 0) > 0 : Boolean(s.hasReport);
+        const open = () => router.push(href);
         return (
           <div
-            key={`${s.type}-${s.id}`}
-            role="button"
+            key={key}
+            role={selectionMode ? "checkbox" : "button"}
+            aria-checked={selectionMode ? isSelected : undefined}
             tabIndex={0}
-            onClick={() => router.push(href)}
+            onClick={() => (selectionMode && onToggleSelect ? onToggleSelect(key) : open())}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
-                router.push(href);
+                if (selectionMode && onToggleSelect) onToggleSelect(key);
+                else open();
               }
             }}
             className={cn(
-              "group flex cursor-pointer flex-col gap-3 rounded-2xl border border-hairline bg-white p-4 text-left transition-all duration-200",
+              "group flex cursor-pointer flex-col gap-3 rounded-2xl border bg-white p-4 text-left transition-all duration-200 outline-none",
               "hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-[0_14px_44px_rgba(0,0,0,0.08)]",
+              selectionMode && isSelected ? "border-primary ring-2 ring-primary/30" : "border-hairline",
               i < 6 && "fl-rise",
               i < 6 && `fl-rise-delay-${(i % 3) + 1}`
             )}
           >
-            <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              {selectionMode && (
+                <span
+                  className={cn(
+                    "flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors",
+                    isSelected ? "border-primary bg-primary text-white" : "border-hairline bg-white"
+                  )}
+                >
+                  {isSelected && <Check size={11} weight="bold" />}
+                </span>
+              )}
               <Badge variant={isDisc ? "primary" : "neutral"}>
                 {isDisc ? <ChatCircleDots size={12} weight="fill" /> : null}
                 {s.meta}
               </Badge>
-              <div className="flex items-center gap-1.5">
+              <div className="ml-auto flex items-center gap-1.5">
                 <Badge variant={meta.badge}>
                   <IconComponent size={12} weight="fill" />
                   {meta.label}
                 </Badge>
-                {onDelete && (
+                {!selectionMode && onDelete && (
                   <button
                     type="button"
                     aria-label="删除会话"
@@ -180,16 +207,26 @@ export function SpacesCards({
                 )}
               </div>
             </div>
+
             <span className="line-clamp-1 text-[15px] font-semibold leading-[1.3] text-ink">{s.title}</span>
             <p className="line-clamp-2 text-[13px] leading-[1.55] text-ink-48">{s.preview}</p>
-            {s.attachmentName && (
-              <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-ink-40">
-                <FilePdf size={12} className="shrink-0 text-error" />
-                <span className="truncate">{s.attachmentName}</span>
-              </div>
-            )}
-            <div className="mt-auto pt-1 text-[11px] text-ink-40">
-              {new Date(s.createdAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+
+            <div className="mt-auto flex items-center gap-2 border-t border-divider-soft pt-2.5">
+              {s.attachmentName && (
+                <span className="flex min-w-0 items-center gap-1.5 rounded-md bg-pearl px-2 py-1 text-[11px] text-ink-60">
+                  <FilePdf size={12} className="shrink-0 text-error" />
+                  <span className="truncate">{s.attachmentName}</span>
+                </span>
+              )}
+              {hasProduct && (
+                <span className="flex shrink-0 items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary">
+                  <FileText size={12} />
+                  {isDisc ? `产物 ${s.artifactCount} 份` : "已出报告"}
+                </span>
+              )}
+              <span className="ml-auto shrink-0 text-[11px] text-ink-40">
+                {new Date(s.createdAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+              </span>
             </div>
           </div>
         );

@@ -108,6 +108,7 @@ export async function GET(req: Request) {
         ideaPreview: r.ideaInput.slice(0, 60),
         error: r.error,
         rating: null,
+        hasReport: Boolean(r.finalReport),
         createdAt: r.createdAt,
       };
     }),
