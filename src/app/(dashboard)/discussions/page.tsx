@@ -4,7 +4,6 @@ import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type Rea
 import { useSearchParams } from "next/navigation";
 import { ChatCircleDots, FilePdf, FileText, PaperPlaneTilt, Plus, SpinnerGap, UsersThree, X } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
-import { avatarColor, tint } from "@/lib/color";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -406,15 +405,15 @@ export default function DiscussionsPage() {
           <div className="h-48 animate-pulse rounded-2xl bg-pearl" />
         )
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-hairline bg-white">
-          {/* 群标题 + 成员头像簇 */}
-          <div className="flex items-center gap-3 border-b border-divider-soft px-6 py-4">
+        <div className="overflow-hidden rounded-2xl border border-hairline bg-white shadow-[0_16px_48px_rgba(0,0,0,0.07)]">
+          {/* 顶部：标题栏（独立一层） */}
+          <div className="flex items-center gap-3 border-b border-divider-soft bg-white px-6 py-4">
             <div className="flex -space-x-2">
               {(current.personas ?? []).map((p) => (
-                <Avatar key={p.id} name={p.name} size="sm" className="ring-2 ring-white" />
+                <Avatar key={p.id} name={p.name} size="md" className="ring-2 ring-white" />
               ))}
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <span
                   className={cn(
@@ -424,71 +423,81 @@ export default function DiscussionsPage() {
                 >
                   {isOne ? "1 对 1" : "多人"}
                 </span>
-                <div className="truncate text-[15px] font-semibold text-ink">
+                <div className="truncate text-[15px] font-semibold tracking-[-0.2px] text-ink">
                   {isOne ? `${current.personas?.[0]?.name ?? "专家"}` : `讨论：${current.brief.slice(0, 30)}…`}
                 </div>
               </div>
-              <div className="flex items-center gap-2 text-[12px] text-ink-48">
-                <span>
+              <div className="mt-0.5 flex items-center gap-2 text-[12px] text-ink-48">
+                <span className="flex items-center gap-1.5">
+                  <span
+                    className={cn(
+                      "h-1.5 w-1.5 rounded-full",
+                      current.status === "running" || running ? "bg-success" : current.status === "done" ? "bg-primary/50" : "bg-ink-40"
+                    )}
+                  />
                   {current.status === "done" && "已结束"}
                   {current.status === "failed" && "失败"}
                   {running && "讨论中…"}
                   {isOne && "一对一交流"}
-                  {!isOne && ` · ${current.rounds} 轮`}
+                  {!isOne && `${current.rounds} 轮`}
                 </span>
                 <CopyId id={current.shortId} />
               </div>
             </div>
-            <div className="ml-auto flex gap-2">
+            <div className="ml-auto flex shrink-0 gap-2">
               <Button variant="dark" size="sm" onClick={summarize} disabled={summarizing || current.messages.length === 0}>
                 {summarizing ? "总结中…" : "总结"}
               </Button>
             </div>
           </div>
 
-          <div className="flex">
-            {/* 消息流 */}
-            <div className="min-w-0 flex-1 border-r border-divider-soft">
-              <div ref={scrollRef} className="h-[52vh] space-y-4 overflow-auto bg-parchment/40 p-6">
+          <div className="flex h-[62vh]">
+            {/* 内容列：消息画布 + 底部输入条 */}
+            <div className="flex min-w-0 flex-1 flex-col">
+              <div
+                ref={scrollRef}
+                className="flex-1 space-y-5 overflow-y-auto bg-[linear-gradient(180deg,rgba(0,0,0,0.015),transparent_140px)] bg-parchment/40 p-6"
+              >
                 {current.messages.length === 0 ? (
-                  <p className="py-10 text-center text-[13px] text-ink-40">
-                    {isOne
-                      ? `向 ${current.personas?.[0]?.name ?? "专家"} 提问，开始一对一交流`
-                      : "专家们正在陆续登场…"}
-                  </p>
+                  <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
+                    <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                      <ChatCircleDots size={22} weight="duotone" />
+                    </div>
+                    <p className="text-[14px] text-ink-48">
+                      {isOne ? `向 ${current.personas?.[0]?.name ?? "专家"} 提问，开始一对一交流` : "专家们正在陆续登场…"}
+                    </p>
+                  </div>
                 ) : (
                   current.messages.map((m) => {
                     if (m.role === "summary") {
                       return (
                         <div key={m.id} className="mx-auto max-w-[85%] rounded-xl bg-success/12 px-4 py-3 text-[13px] leading-[1.7] text-ink-80">
-                          <div className="mb-1 text-[11px] font-semibold text-[#1f7a43]">📋 综合建议</div>
+                          <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-[#1f7a43]">
+                            <span className="flex h-4 w-4 items-center justify-center rounded bg-[#1f7a43]/15">📋</span> 总结
+                          </div>
                           <div className="whitespace-pre-wrap">{m.content}</div>
                         </div>
                       );
                     }
                     const isUser = m.role === "user";
-                    const color = isUser ? "#0066cc" : avatarColor(m.sender);
                     const time = new Date(m.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
                     return (
-                      <div key={m.id} className={cn("flex gap-2.5", isUser && "flex-row-reverse")}>
+                      <div key={m.id} className={cn("flex items-start gap-2.5", isUser && "flex-row-reverse")}>
                         <Avatar name={isUser ? "我" : m.sender} size="sm" />
                         <div className={cn("max-w-[76%]", isUser && "text-right")}>
-                          <div className={cn("mb-1 flex items-baseline gap-1.5 text-[11px]", isUser && "justify-end")}>
-                            <span className={isUser ? "text-ink-40" : undefined} style={isUser ? undefined : { color, fontWeight: 600 }}>
-                              {isUser ? "我" : m.sender}
-                            </span>
+                          <div className={cn("mb-1 flex items-baseline gap-1.5 text-[11px] text-ink-40", isUser && "justify-end")}>
+                            <span className="font-medium">{isUser ? "我" : m.sender}</span>
                             <span className="text-ink-40/70">{time}</span>
                           </div>
                           <div
                             className={cn(
                               "inline-block rounded-2xl px-3.5 py-2 text-left text-[14px] leading-[1.6] whitespace-pre-wrap",
                               isUser
-                                ? "bg-primary text-white rounded-tr-sm shadow-[0_4px_12px_rgba(0,102,204,0.18)]"
-                                : "rounded-tl-sm text-ink shadow-[0_2px_8px_rgba(0,0,0,0.05)]"
+                                ? "bg-primary text-white rounded-tr-sm shadow-[0_4px_12px_rgba(0,102,204,0.2)]"
+                                : "bg-white text-ink rounded-tl-sm shadow-[0_1px_3px_rgba(0,0,0,0.06)]"
                             )}
-                            style={isUser ? undefined : { backgroundColor: tint(color, 0.1), borderLeft: `2.5px solid ${color}` }}
                           >
-                            {renderContent(m.content, personaNames, isUser ? "font-semibold underline decoration-2 underline-offset-2" : "font-semibold text-primary")}
+                            {renderContent(m.content, personaNames, isUser ? "font-semibold underline decoration-2 underline-offset-2" : undefined)}
                           </div>
                         </div>
                       </div>
@@ -507,11 +516,11 @@ export default function DiscussionsPage() {
                 )}
               </div>
 
-              {/* 输入 + 插话 */}
-              <div className="border-t border-divider-soft p-3">
-                <div className="relative flex items-center gap-2 rounded-2xl border border-hairline bg-white p-2 transition-colors focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10">
+              {/* 底部输入条（独立一层） */}
+              <div className="border-t border-divider-soft bg-white px-4 py-3">
+                <div className="relative flex items-center gap-2 rounded-2xl border border-hairline bg-white p-2 shadow-[0_2px_10px_rgba(0,0,0,0.05)] transition-colors focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10">
                   {!isOne && mentionQuery !== null && mentionOptions.length > 0 && (
-                    <div className="absolute bottom-full left-0 right-0 mb-2 overflow-hidden rounded-xl border border-hairline bg-white shadow-[0_8px_24px_rgba(0,0,0,0.08)]">
+                    <div className="absolute bottom-full left-0 right-0 mb-2 overflow-hidden rounded-xl border border-hairline bg-white shadow-[0_8px_24px_rgba(0,0,0,0.1)]">
                       <div className="border-b border-divider-soft px-3 py-1.5 text-[11px] text-ink-40">选择要 @ 的成员</div>
                       <div className="max-h-44 overflow-auto py-1">
                         {mentionOptions.map((p) => (
@@ -556,17 +565,18 @@ export default function DiscussionsPage() {
                     {sending ? "发送中…" : isOne ? "发送" : "插话"}
                   </Button>
                 </div>
+                <p className="mt-2 text-center text-[11px] text-ink-40">Enter 发送 · Shift+Enter 换行</p>
               </div>
             </div>
 
-            {/* 讨论成员列表 */}
-            <aside className="w-56 shrink-0">
-              <div className="flex items-center gap-2 px-5 py-4 text-[12px] font-semibold uppercase tracking-wide text-ink-40">
-                <UsersThree size={14} /> {isOne ? "交流对象" : "讨论成员"}（{current.personas?.length ?? 0}）
+            {/* 右侧：参与人（独立一层） */}
+            <aside className="w-60 shrink-0 border-l border-divider-soft bg-parchment/30">
+              <div className="flex items-center gap-2 border-b border-divider-soft bg-white/50 px-4 py-3 text-[12px] font-semibold uppercase tracking-wide text-ink-40">
+                <UsersThree size={14} /> {isOne ? "交流对象" : "参与人"}（{current.personas?.length ?? 0}）
               </div>
-              <div className="space-y-1 px-2 pb-4">
+              <div className="space-y-1 p-2">
                 {(current.personas ?? []).map((p) => (
-                  <div key={p.id} className="flex items-center gap-2.5 rounded-lg px-3 py-2 hover:bg-parchment">
+                  <div key={p.id} className="flex items-center gap-2.5 rounded-lg px-3 py-2 hover:bg-white">
                     <Avatar name={p.name} size="sm" />
                     <div className="min-w-0">
                       <div className="truncate text-[13px] font-medium text-ink">{p.name}</div>
@@ -574,7 +584,7 @@ export default function DiscussionsPage() {
                     </div>
                   </div>
                 ))}
-                <div className="flex items-center gap-2.5 rounded-lg px-3 py-2">
+                <div className="flex items-center gap-2.5 rounded-lg px-3 py-2 hover:bg-white">
                   <Avatar name="我" size="sm" />
                   <div>
                     <div className="text-[13px] font-medium text-ink">我</div>
