@@ -9,6 +9,40 @@ import { getSetting } from "@/lib/settings/store";
 
 const SUMMARY_LIMIT = 1800;
 
+/** 提取消息中的 @人名 提及（支持中英文姓名） */
+function parseMentions(content: string): string[] {
+  const regex = /@([\p{L}\p{N}\u4e00-\u9fff_\-·]+)/gu;
+  const out: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = regex.exec(content))) out.push(m[1]);
+  return out;
+}
+
+/** 名称宽松匹配：提及与当前人格名/其部分一致即视为点名 */
+function mentionsName(mentions: string[], personaName: string): boolean {
+  return mentions.some((n) => n === personaName || n.includes(personaName) || personaName.includes(n));
+}
+
+/**
+ * 将用户插话拆成两类：
+ * - direct：@点名当前人格的（下一回合由该人格正面回应）
+ * - general：未点名的通用插话（所有在场人格都能看到）
+ */
+function splitSteers(steers: { content: string }[], personaName: string): { general: string; direct: string } {
+  const general: string[] = [];
+  const direct: string[] = [];
+  for (const s of steers) {
+    const mentions = parseMentions(s.content);
+    if (mentions.length === 0) {
+      general.push(`【你】：${s.content}`);
+    } else if (mentionsName(mentions, personaName)) {
+      direct.push(`【你】：${s.content}`);
+    }
+    // 点别人的名：对本格不注入，避免抢答
+  }
+  return { general: general.join("\n"), direct: direct.join("\n") };
+}
+
 /** 读取人物 skill（SKILL.md）作为完整人设；缺失则回退 systemPrompt */
 function loadSkill(skillPath: string | null | undefined, fallback: string): string {
   if (skillPath) {
@@ -62,13 +96,14 @@ export async function runDiscussion(id: string) {
           where: { discussionId: id, role: "user" },
           orderBy: { createdAt: "asc" },
         });
-        const steerText = steers.length ? steers.map((s) => `【你】：${s.content}`).join("\n") : "";
+        const { general, direct } = splitSteers(steers, persona.name);
 
         const sys =
           loadSkill(persona.skillPath, persona.systemPrompt) +
           `\n\n【讨论背景】\n${d.brief}` +
           `\n\n【当前共识/要点】\n${summaryBox}` +
-          (steerText ? `\n\n【用户此刻插话】\n${steerText}` : "") +
+          (general ? `\n\n【用户此刻插话】\n${general}` : "") +
+          (direct ? `\n\n【用户直接点名你，请先正面回应这个问题】\n${direct}` : "") +
           `\n\n你现在是「${persona.name}」，轮到你发言。请用你的立场与风格，针对方案和其他人观点给出观点；简洁、有观点、不要重复别人。用第一人称。`;
 
         const history = buffers.get(persona.id) ?? [];

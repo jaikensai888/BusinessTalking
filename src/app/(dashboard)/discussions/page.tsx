@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLineDown, ChatCircleDots, PaperPlaneTilt, UsersThree } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
@@ -16,6 +16,29 @@ const TYPE_LABEL: Record<string, string> = {
   investor: "投资人", entrepreneur: "创业者", economist: "经济学家", analyst: "分析师",
   customer: "客户", competitor: "竞对", custom: "自定义",
 };
+
+/** 高亮消息中的 @人物 提及（仅对在场的人格高亮） */
+function renderContent(content: string, personaNames: Set<string>, accent = "font-medium text-primary"): ReactNode[] {
+  const parts: ReactNode[] = [];
+  const regex = /@([\p{L}\p{N}\u4e00-\u9fff_\-·]+)/gu;
+  let last = 0;
+  let key = 0;
+  let m: RegExpExecArray | null;
+  while ((m = regex.exec(content))) {
+    const name = m[1];
+    if (last < m.index) parts.push(content.slice(last, m.index));
+    if (personaNames.has(name)) {
+      parts.push(
+        <span key={key++} className={accent}>@{name}</span>
+      );
+    } else {
+      parts.push(`@${name}`);
+    }
+    last = m.index + m[0].length;
+  }
+  if (last < content.length) parts.push(content.slice(last));
+  return parts;
+}
 
 /** 多人讨论室（微信群聊式）：参与者列表 + 微信气泡流；可插话、综合建议 */
 export default function DiscussionsPage() {
@@ -33,6 +56,8 @@ export default function DiscussionsPage() {
   const [summarizing, setSummarizing] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const steerRef = useRef<HTMLInputElement | null>(null);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/v1/personas?page_size=100")
@@ -127,7 +152,43 @@ export default function DiscussionsPage() {
     else setError(d.message ?? "生成建议失败");
   };
 
+  // @ 提及：输入时检测光标前的 "@",弹出成员选择
+  const handleSteerChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setSteer(val);
+    const pos = e.target.selectionStart ?? val.length;
+    const before = val.slice(0, pos);
+    const atPos = before.lastIndexOf("@");
+    const tail = before.slice(atPos + 1);
+    if (atPos >= 0 && !tail.includes("@") && !tail.includes(" ") && !tail.includes("\n") && tail.length <= 12) {
+      setMentionQuery(tail);
+    } else {
+      setMentionQuery(null);
+    }
+  };
+
+  const mentionOptions =
+    mentionQuery !== null
+      ? (current?.personas ?? []).filter((p) => p.name.includes(mentionQuery))
+      : [];
+
+  const insertMention = (name: string) => {
+    const input = steerRef.current;
+    const pos = input?.selectionStart ?? steer.length;
+    const before = steer.slice(0, pos);
+    const atPos = before.lastIndexOf("@");
+    const newVal = before.slice(0, atPos) + `@${name} ` + steer.slice(pos);
+    setSteer(newVal);
+    setMentionQuery(null);
+    const nextPos = atPos + 1 + name.length + 1;
+    requestAnimationFrame(() => {
+      input?.focus();
+      input?.setSelectionRange(nextPos, nextPos);
+    });
+  };
+
   const running = current && (current.status === "running" || current.status === "pending");
+  const personaNames = new Set((current?.personas ?? []).map((p) => p.name));
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-10">
@@ -255,7 +316,7 @@ export default function DiscussionsPage() {
                                 : "bg-white text-ink rounded-tl-sm shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
                             )}
                           >
-                            {m.content}
+                            {renderContent(m.content, personaNames, isUser ? "font-semibold underline decoration-2 underline-offset-2" : undefined)}
                           </div>
                         </div>
                       </div>
@@ -271,12 +332,43 @@ export default function DiscussionsPage() {
 
               {/* 输入 + 插话 */}
               <div className="border-t border-divider-soft p-3">
-                <div className="flex items-center gap-2 rounded-2xl border border-hairline bg-white p-2 transition-colors focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10">
+                <div className="relative flex items-center gap-2 rounded-2xl border border-hairline bg-white p-2 transition-colors focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10">
+                  {mentionQuery !== null && mentionOptions.length > 0 && (
+                    <div className="absolute bottom-full left-0 right-0 mb-2 overflow-hidden rounded-xl border border-hairline bg-white shadow-[0_8px_24px_rgba(0,0,0,0.08)]">
+                      <div className="border-b border-divider-soft px-3 py-1.5 text-[11px] text-ink-40">选择要 @ 的成员</div>
+                      <div className="max-h-44 overflow-auto py-1">
+                        {mentionOptions.map((p) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => insertMention(p.name)}
+                            className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-parchment"
+                          >
+                            <Avatar name={p.name} size="sm" />
+                            <div>
+                              <div className="text-[13px] font-medium text-ink">{p.name}</div>
+                              <div className="text-[11px] text-ink-40">{TYPE_LABEL[p.perspectiveType] ?? p.perspectiveType}</div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <input
+                    ref={steerRef}
                     value={steer}
-                    onChange={(e) => setSteer(e.target.value)}
-                    placeholder="插一句：『乔布斯，如果成本砍半呢？』"
-                    onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), sendSteer())}
+                    onChange={handleSteerChange}
+                    placeholder="插一句，用 @ 点名：「@乔布斯 如果成本砍半呢？」"
+                    onKeyDown={(e) => {
+                      if (mentionQuery !== null && mentionOptions.length > 0) {
+                        if (e.key === "Escape") { setMentionQuery(null); e.preventDefault(); return; }
+                        if (e.key === "Enter") { e.preventDefault(); insertMention(mentionOptions[0].name); return; }
+                      } else if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        sendSteer();
+                      }
+                    }}
                     className="h-9 flex-1 bg-transparent px-2 text-[14px] text-ink outline-none placeholder:text-ink-40"
                   />
                   <Button size="sm" onClick={sendSteer} disabled={!steer.trim()}>插话</Button>
