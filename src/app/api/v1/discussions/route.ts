@@ -23,18 +23,20 @@ export async function POST(req: Request) {
   const count = await prisma.persona.count({ where: { id: { in: personaIds } } });
   if (count !== personaIds.length) return err(40001, "存在不存在的人格", 400);
 
+  // 单人 = 1 对 1：不自动跑多轮，进入"ready"等待用户提问；多人 = 自动交锋
+  const isOneOnOne = personaIds.length === 1;
   const d = await prisma.discussion.create({
     data: {
       brief,
       rounds,
       personaIds: personaIds as unknown as Prisma.InputJsonValue,
-      status: "pending",
+      status: isOneOnOne ? "ready" : "pending",
       summaryBox: brief,
     },
   });
-  void runDiscussion(d.id);
+  if (!isOneOnOne) void runDiscussion(d.id);
 
-  return ok({ id: d.id, status: "pending", rounds: d.rounds, createdAt: d.createdAt });
+  return ok({ id: d.id, status: d.status, mode: isOneOnOne ? "1on1" : "group", rounds: d.rounds, createdAt: d.createdAt });
 }
 
 /** GET /api/v1/discussions — 最近讨论列表 */
@@ -42,9 +44,12 @@ export async function GET() {
   const items = await prisma.discussion.findMany({
     orderBy: { createdAt: "desc" },
     take: 30,
-    select: { id: true, brief: true, rounds: true, status: true, createdAt: true },
+    select: { id: true, brief: true, rounds: true, status: true, personaIds: true, createdAt: true },
   });
   return ok({
-    items: items.map((i) => ({ ...i, brief: i.brief.slice(0, 60) })),
+    items: items.map((i) => {
+      const personaIds = (i.personaIds as string[]) ?? [];
+      return { id: i.id, brief: i.brief.slice(0, 60), rounds: i.rounds, status: i.status, personaCount: personaIds.length, createdAt: i.createdAt };
+    }),
   });
 }

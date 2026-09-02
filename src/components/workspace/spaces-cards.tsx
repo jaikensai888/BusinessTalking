@@ -11,7 +11,7 @@ interface Space {
   type: "discussion" | "run";
   title: string;
   preview: string;
-  status: "pending" | "running" | "done" | "failed" | "cancelled";
+  status: "pending" | "running" | "ready" | "done" | "failed" | "cancelled";
   meta: string;
   createdAt: string;
 }
@@ -19,6 +19,7 @@ interface Space {
 const STATUS_META: Record<string, { label: string; badge: BadgeVariant; icon: React.ElementType }> = {
   pending: { label: "等待中", badge: "neutral", icon: Clock },
   running: { label: "进行中", badge: "primary", icon: Play },
+  ready: { label: "待提问", badge: "primary", icon: ChatCircleDots },
   done: { label: "已结束", badge: "success", icon: CheckCircle },
   failed: { label: "失败", badge: "error", icon: XCircle },
   cancelled: { label: "已取消", badge: "neutral", icon: Clock },
@@ -38,13 +39,13 @@ export function SpacesCards({ refreshKey, onNew }: { refreshKey: number; onNew?:
         fetch("/api/v1/runs?page_size=24").then((r) => r.json()),
       ]);
 
-      const dSpaces: Space[] = disc.code === 0 ? disc.data.items.map((i: { id: string; brief: string; status: string; createdAt: string }) => ({
+      const dSpaces: Space[] = disc.code === 0 ? disc.data.items.map((i: { id: string; brief: string; status: string; personaCount?: number; createdAt: string }) => ({
         id: i.id,
         type: "discussion",
         title: i.brief.slice(0, 24),
         preview: i.brief.slice(0, 60),
         status: i.status,
-        meta: "讨论",
+        meta: i.personaCount === 1 ? "1 对 1" : "讨论",
         createdAt: i.createdAt,
       })) : [];
 

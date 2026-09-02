@@ -44,7 +44,7 @@ function splitSteers(steers: { content: string }[], personaName: string): { gene
 }
 
 /** 读取人物 skill（SKILL.md）作为完整人设；缺失则回退 systemPrompt */
-function loadSkill(skillPath: string | null | undefined, fallback: string): string {
+export function loadSkill(skillPath: string | null | undefined, fallback: string): string {
   if (skillPath) {
     try {
       return fs.readFileSync(path.join(process.cwd(), skillPath), "utf8");

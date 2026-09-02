@@ -67,7 +67,11 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/v1/discussions
   await prisma.discussionMessage.create({
     data: { discussionId: id, role: "summary", sender: "综合建议", turn: d.rounds + 1, content },
   });
-  await prisma.discussion.update({ where: { id }, data: { status: "done" } });
+  // 单人讨论保持"ready"继续问答；多人讨论才标记结束
+  await prisma.discussion.update({
+    where: { id },
+    data: { status: personaIds.length === 1 ? "ready" : "done" },
+  });
 
   return ok({ content, artifact });
 }

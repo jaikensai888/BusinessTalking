@@ -54,6 +54,7 @@ export default function DiscussionsPage() {
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [steer, setSteer] = useState("");
+  const [sending, setSending] = useState(false);
   const [summarizing, setSummarizing] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -106,7 +107,8 @@ export default function DiscussionsPage() {
       const d = await res.json();
       if (d.code === 0) {
         setCurrent(d.data);
-        if (d.data.status === "done" || d.data.status === "failed") {
+        // 单人讨论由用户提问即时驱动，无后台自动推进；加载后即可停止轮询
+        if (d.data.status === "done" || d.data.status === "failed" || (d.data.personas?.length ?? 0) === 1) {
           if (pollRef.current) clearInterval(pollRef.current);
           pollRef.current = null;
         }
@@ -131,17 +133,23 @@ export default function DiscussionsPage() {
   }, [viewId]);
 
   const sendSteer = async () => {
-    if (!current || !steer.trim()) return;
-    const res = await fetch(`/api/v1/discussions/${current.id}/steer`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: steer }),
-    });
-    const d = await res.json();
-    if (d.code === 0) {
-      setSteer("");
-      void load(current.id);
-    } else setError(d.message ?? "插话失败");
+    if (!current || !steer.trim() || sending) return;
+    setSending(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/v1/discussions/${current.id}/steer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: steer }),
+      });
+      const d = await res.json();
+      if (d.code === 0) {
+        setSteer("");
+        void load(current.id);
+      } else setError(d.message ?? (isOne ? "发送失败" : "插话失败"));
+    } finally {
+      setSending(false);
+    }
   };
 
   const summarize = async () => {
@@ -200,6 +208,7 @@ export default function DiscussionsPage() {
   };
 
   const running = current && (current.status === "running" || current.status === "pending");
+  const isOne = (current?.personas?.length ?? 0) === 1;
   const personaNames = new Set((current?.personas ?? []).map((p) => p.name));
 
   return (
@@ -209,8 +218,8 @@ export default function DiscussionsPage() {
           <ChatCircleDots size={22} weight="duotone" />
         </div>
         <div>
-          <h1 className="text-[26px] font-semibold leading-[1.2] tracking-[-0.4px]">多人讨论</h1>
-          <p className="text-[13px] text-ink-48">邀请 1 位或多位专家人格，围绕一个方案展开讨论，给你建议</p>
+          <h1 className="text-[26px] font-semibold leading-[1.2] tracking-[-0.4px]">讨论</h1>
+          <p className="text-[13px] text-ink-48">单人：你问我答的一对一交流；多人：多位专家互相交锋，给你建议</p>
         </div>
       </div>
 
@@ -243,20 +252,28 @@ export default function DiscussionsPage() {
             })}
           </div>
           <div className="mt-4 flex items-center justify-between">
-            <label className="flex items-center gap-2 text-[13px] text-ink-60">
-              轮数
-              <select
-                value={rounds}
-                onChange={(e) => setRounds(Number(e.target.value))}
-                className="h-9 rounded-lg border border-hairline px-2 text-[14px] outline-none focus:border-primary"
-              >
-                {[2, 3, 5, 8, 10].map((r) => (
-                  <option key={r} value={r}>{r}</option>
-                ))}
-              </select>
-            </label>
+            <div className="flex items-center gap-2 text-[13px] text-ink-60">
+              {selected.length === 1 ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-primary">
+                  <ChatCircleDots size={14} /> 一对一问答交流（你问我答）
+                </span>
+              ) : (
+                <label className="flex items-center gap-2">
+                  轮数
+                  <select
+                    value={rounds}
+                    onChange={(e) => setRounds(Number(e.target.value))}
+                    className="h-9 rounded-lg border border-hairline px-2 text-[14px] outline-none focus:border-primary"
+                  >
+                    {[2, 3, 5, 8, 10].map((r) => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
             <Button onClick={start} disabled={starting}>
-              {starting ? "创建中…" : "开始讨论"}
+              {starting ? "创建中…" : selected.length === 1 ? "开始交流" : "开始讨论"}
             </Button>
           </div>
           {error && <p className="mt-2 text-[13px] text-error">{error}</p>}
@@ -283,12 +300,25 @@ export default function DiscussionsPage() {
               ))}
             </div>
             <div className="min-w-0">
-              <div className="truncate text-[15px] font-semibold text-ink">讨论：{current.brief.slice(0, 30)}…</div>
+              <div className="flex items-center gap-2">
+                <span
+                  className={cn(
+                    "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                    isOne ? "bg-primary/10 text-primary" : "bg-parchment text-ink-60"
+                  )}
+                >
+                  {isOne ? "1 对 1" : "多人"}
+                </span>
+                <div className="truncate text-[15px] font-semibold text-ink">
+                  {isOne ? `${current.personas?.[0]?.name ?? "专家"}` : `讨论：${current.brief.slice(0, 30)}…`}
+                </div>
+              </div>
               <div className="text-[12px] text-ink-48">
-                {current.personas?.length ?? 2} 人 · {current.rounds} 轮 ·{" "}
                 {current.status === "done" && "已结束"}
                 {current.status === "failed" && "失败"}
                 {running && "讨论中…"}
+                {isOne && "一对一交流"}
+                {!isOne && ` · ${current.rounds} 轮`}
               </div>
             </div>
             <div className="ml-auto flex gap-2">
@@ -303,7 +333,11 @@ export default function DiscussionsPage() {
             <div className="min-w-0 flex-1 border-r border-divider-soft">
               <div ref={scrollRef} className="h-[52vh] space-y-4 overflow-auto bg-parchment/40 p-6">
                 {current.messages.length === 0 ? (
-                  <p className="py-10 text-center text-[13px] text-ink-40">专家们正在陆续登场…</p>
+                  <p className="py-10 text-center text-[13px] text-ink-40">
+                    {isOne
+                      ? `向 ${current.personas?.[0]?.name ?? "专家"} 提问，开始一对一交流`
+                      : "专家们正在陆续登场…"}
+                  </p>
                 ) : (
                   current.messages.map((m) => {
                     if (m.role === "summary") {
@@ -340,12 +374,17 @@ export default function DiscussionsPage() {
                     <PaperPlaneTilt size={14} className="animate-pulse" /> 专家们正在发言…
                   </div>
                 )}
+                {isOne && sending && (
+                  <div className="flex items-center gap-2 py-1 text-[12px] text-ink-40">
+                    <ChatCircleDots size={14} className="animate-pulse" /> {current.personas?.[0]?.name ?? "专家"} 正在回复…
+                  </div>
+                )}
               </div>
 
               {/* 输入 + 插话 */}
               <div className="border-t border-divider-soft p-3">
                 <div className="relative flex items-center gap-2 rounded-2xl border border-hairline bg-white p-2 transition-colors focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10">
-                  {mentionQuery !== null && mentionOptions.length > 0 && (
+                  {!isOne && mentionQuery !== null && mentionOptions.length > 0 && (
                     <div className="absolute bottom-full left-0 right-0 mb-2 overflow-hidden rounded-xl border border-hairline bg-white shadow-[0_8px_24px_rgba(0,0,0,0.08)]">
                       <div className="border-b border-divider-soft px-3 py-1.5 text-[11px] text-ink-40">选择要 @ 的成员</div>
                       <div className="max-h-44 overflow-auto py-1">
@@ -371,9 +410,13 @@ export default function DiscussionsPage() {
                     ref={steerRef}
                     value={steer}
                     onChange={handleSteerChange}
-                    placeholder="插一句，用 @ 点名：「@乔布斯 如果成本砍半呢？」"
+                    placeholder={
+                      isOne
+                        ? `向 ${current.personas?.[0]?.name ?? "专家"} 提问…`
+                        : "插一句，用 @ 点名：「@乔布斯 如果成本砍半呢？」"
+                    }
                     onKeyDown={(e) => {
-                      if (mentionQuery !== null && mentionOptions.length > 0) {
+                      if (!isOne && mentionQuery !== null && mentionOptions.length > 0) {
                         if (e.key === "Escape") { setMentionQuery(null); e.preventDefault(); return; }
                         if (e.key === "Enter") { e.preventDefault(); insertMention(mentionOptions[0].name); return; }
                       } else if (e.key === "Enter" && !e.shiftKey) {
@@ -383,7 +426,9 @@ export default function DiscussionsPage() {
                     }}
                     className="h-9 flex-1 bg-transparent px-2 text-[14px] text-ink outline-none placeholder:text-ink-40"
                   />
-                  <Button size="sm" onClick={sendSteer} disabled={!steer.trim()}>插话</Button>
+                  <Button size="sm" onClick={sendSteer} disabled={sending || !steer.trim()}>
+                    {sending ? "发送中…" : isOne ? "发送" : "插话"}
+                  </Button>
                 </div>
               </div>
             </div>
@@ -391,7 +436,7 @@ export default function DiscussionsPage() {
             {/* 讨论成员列表 */}
             <aside className="w-56 shrink-0">
               <div className="flex items-center gap-2 px-5 py-4 text-[12px] font-semibold uppercase tracking-wide text-ink-40">
-                <UsersThree size={14} /> 讨论成员（{current.personas?.length ?? 0}）
+                <UsersThree size={14} /> {isOne ? "交流对象" : "讨论成员"}（{current.personas?.length ?? 0}）
               </div>
               <div className="space-y-1 px-2 pb-4">
                 {(current.personas ?? []).map((p) => (
@@ -407,7 +452,7 @@ export default function DiscussionsPage() {
                   <Avatar name="我" size="sm" />
                   <div>
                     <div className="text-[13px] font-medium text-ink">我</div>
-                    <div className="text-[11px] text-ink-40">主持人 · 可插话</div>
+                    <div className="text-[11px] text-ink-40">主持人 · {isOne ? "提问" : "可插话"}</div>
                   </div>
                 </div>
               </div>

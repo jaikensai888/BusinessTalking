@@ -1,7 +1,8 @@
 import { err, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
+import { replyOneOnOne } from "@/lib/discussion/oneonone";
 
-/** POST /api/v1/discussions/:id/steer — 用户插话（写入消息，下一回合生效） */
+/** POST /api/v1/discussions/:id/steer — 用户插话/提问 */
 export async function POST(req: Request, ctx: RouteContext<"/api/v1/discussions/[id]/steer">) {
   const { id } = await ctx.params;
   let body: { message?: unknown };
@@ -16,6 +17,32 @@ export async function POST(req: Request, ctx: RouteContext<"/api/v1/discussions/
   const d = await prisma.discussion.findUnique({ where: { id } });
   if (!d) return err(40401, "讨论不存在", 404);
 
+  const personaIds = (d.personaIds as string[]) ?? [];
+
+  // 单人（1 对 1）讨论：你问我答——用户每发一条，该人设立即作答
+  if (personaIds.length === 1) {
+    const persona = await prisma.persona.findUnique({
+      where: { id: personaIds[0] },
+      select: { name: true },
+    });
+    const m = await prisma.discussionMessage.create({
+      data: { discussionId: id, role: "user", sender: "你", turn: 0, content: message },
+    });
+    const reply = await replyOneOnOne(id, personaIds[0], message);
+    await prisma.discussionMessage.create({
+      data: {
+        discussionId: id,
+        personaId: personaIds[0],
+        sender: persona?.name ?? "专家",
+        role: "persona",
+        turn: 0,
+        content: reply,
+      },
+    });
+    return ok({ id: m.id, mode: "1on1", reply });
+  }
+
+  // 多人讨论：仅记录，由运行引擎在下一轮消费
   const m = await prisma.discussionMessage.create({
     data: { discussionId: id, role: "user", sender: "你", turn: 0, content: message },
   });
