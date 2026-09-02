@@ -210,6 +210,7 @@ export default function WorkspacePage() {
         setSelectedRecipeId(null);
         setAttachment(null);
         setRefreshKey((k) => k + 1);
+        router.push(`/runs/${d.data.id}`);
       } else {
         setError(d.message ?? "启动失败");
       }
@@ -250,6 +251,7 @@ export default function WorkspacePage() {
         setSelectedRecipeId(null);
         setAttachment(null);
         setRefreshKey((k) => k + 1);
+        router.push(`/discussions?id=${d.data.id}`);
       } else {
         setError(d.message ?? "创建讨论失败");
       }
