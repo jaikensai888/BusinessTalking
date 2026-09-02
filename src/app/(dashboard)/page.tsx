@@ -264,16 +264,13 @@ export default function WorkspacePage() {
       inputRef.current?.focus();
       return;
     }
-    if (matchedPersonas.length >= 2) {
+    if (matchedPersonas.length >= 1) {
+      // 1 人 = 一对一讨论；多人 = 交锋讨论
       startDiscussion(matchedPersonas.map((p) => p.id));
       return;
     }
     if (matchedRecipe) {
       startRun(matchedRecipe.id);
-      return;
-    }
-    if (matchedPersonas.length === 1) {
-      setError("讨论需要至少 2 个人格，再 @ 一位吧；或 @ 配方 开始分析");
       return;
     }
     if (selectedRecipeId) {

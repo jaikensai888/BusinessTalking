@@ -64,7 +64,7 @@ export async function runDiscussion(id: string) {
   if (!d) return;
   const personaIds = (d.personaIds as string[]) ?? [];
   const personas = await prisma.persona.findMany({ where: { id: { in: personaIds } } });
-  if (personas.length < 2) {
+  if (personas.length < 1) {
     await prisma.discussion.update({ where: { id }, data: { status: "failed" } });
     return;
   }

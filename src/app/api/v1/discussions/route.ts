@@ -19,7 +19,7 @@ export async function POST(req: Request) {
   const rounds = Math.min(10, Math.max(1, Number(body.rounds ?? 5) || 5));
 
   if (!brief || brief.length > 10000) return err(40001, "brief 必填（1~10000 字符）", 400);
-  if (personaIds.length < 2) return err(40001, "至少选择 2 个人格参与讨论", 400);
+  if (personaIds.length < 1) return err(40001, "至少选择 1 个人格参与讨论", 400);
   const count = await prisma.persona.count({ where: { id: { in: personaIds } } });
   if (count !== personaIds.length) return err(40001, "存在不存在的人格", 400);
 

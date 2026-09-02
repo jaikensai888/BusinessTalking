@@ -74,7 +74,7 @@ export default function DiscussionsPage() {
 
   const start = async () => {
     if (!brief.trim()) return setError("请先输入要讨论的方案/问题");
-    if (selected.length < 2) return setError("请至少选择 2 个人格参与讨论");
+    if (selected.length < 1) return setError("请至少选择 1 个人格参与讨论");
     setStarting(true);
     setError(null);
     try {
@@ -210,7 +210,7 @@ export default function DiscussionsPage() {
         </div>
         <div>
           <h1 className="text-[26px] font-semibold leading-[1.2] tracking-[-0.4px]">多人讨论</h1>
-          <p className="text-[13px] text-ink-48">让多位专家人格围绕一个方案展开讨论，给你建议</p>
+          <p className="text-[13px] text-ink-48">邀请 1 位或多位专家人格，围绕一个方案展开讨论，给你建议</p>
         </div>
       </div>
 
@@ -268,7 +268,7 @@ export default function DiscussionsPage() {
           <EmptyState
             icon={ChatCircleDots}
             title="发起一场专家讨论"
-            description="输入方案、勾选至少 2 个人格，他们就会轮流发言并互相回应。"
+            description="输入方案、勾选 1 或多个人格：多人会互相交锋，单人则与你一对一深度交流。"
           />
         ) : (
           <div className="h-48 animate-pulse rounded-2xl bg-pearl" />
