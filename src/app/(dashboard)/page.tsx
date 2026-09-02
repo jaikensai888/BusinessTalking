@@ -482,7 +482,7 @@ export default function WorkspacePage() {
           <h2 className="text-[19px] font-semibold tracking-[-0.2px]">会话空间</h2>
           <button
             className="text-[13px] text-primary transition-colors hover:text-[#0077e6] hover:underline"
-            onClick={() => setRefreshKey((k) => k + 1)}
+            onClick={() => router.push("/spaces")}
           >
             全部空间 ›
           </button>

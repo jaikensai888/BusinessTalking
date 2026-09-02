@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   ChartLineUp,
+  ChatCircleDots,
   Database,
   GearSix,
   ListBullets,
@@ -15,6 +16,7 @@ import { cn } from "@/lib/utils";
 
 const MAIN_NAV: { href: string; label: string; icon: Icon }[] = [
   { href: "/", label: "工作台", icon: ChartLineUp },
+  { href: "/spaces", label: "会话空间", icon: ChatCircleDots },
   { href: "/skills", label: "Skill 库", icon: Database },
   { href: "/personas", label: "人格库", icon: UsersThree },
   { href: "/recipes", label: "配方", icon: Scroll },

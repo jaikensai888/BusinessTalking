@@ -61,11 +61,13 @@ export async function POST(req: Request) {
   });
 }
 
-/** GET /api/v1/discussions — 最近讨论列表 */
-export async function GET() {
+/** GET /api/v1/discussions — 最近讨论列表（支持 page_size） */
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const pageSize = Math.min(100, Math.max(1, Number(url.searchParams.get("page_size") ?? 30) || 30));
   const items = await prisma.discussion.findMany({
     orderBy: { createdAt: "desc" },
-    take: 30,
+    take: pageSize,
     select: { id: true, brief: true, rounds: true, status: true, personaIds: true, attachmentName: true, createdAt: true },
   });
   return ok({

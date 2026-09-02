@@ -38,3 +38,12 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/v1/runs/[id]">)
     })),
   });
 }
+
+/** DELETE /api/v1/runs/:id — 删除一次运行（级联步骤/反馈） */
+export async function DELETE(_req: Request, ctx: RouteContext<"/api/v1/runs/[id]">) {
+  const { id } = await ctx.params;
+  const run = await prisma.run.findUnique({ where: { id }, select: { id: true } });
+  if (!run) return err(40401, "运行不存在", 404);
+  await prisma.run.delete({ where: { id } });
+  return ok({ deleted: true });
+}

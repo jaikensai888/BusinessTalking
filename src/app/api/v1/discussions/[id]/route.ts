@@ -45,3 +45,12 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/v1/discussions/
     })),
   });
 }
+
+/** DELETE /api/v1/discussions/:id — 删除一场讨论（级联消息/产物） */
+export async function DELETE(_req: Request, ctx: RouteContext<"/api/v1/discussions/[id]">) {
+  const { id } = await ctx.params;
+  const d = await prisma.discussion.findUnique({ where: { id }, select: { id: true } });
+  if (!d) return err(40401, "讨论不存在", 404);
+  await prisma.discussion.delete({ where: { id } });
+  return ok({ deleted: true });
+}

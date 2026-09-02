@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, ChatCircleDots, CheckCircle, Clock, FilePdf, Play, XCircle } from "@phosphor-icons/react";
+import { ArrowRight, ChatCircleDots, CheckCircle, Clock, FilePdf, Play, Trash, XCircle } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
 
@@ -26,18 +26,32 @@ const STATUS_META: Record<string, { label: string; badge: BadgeVariant; icon: Re
   cancelled: { label: "已取消", badge: "neutral", icon: Clock },
 };
 
-/** 会话空间卡片：合并讨论 + 分析运行，按最新排序 */
-export function SpacesCards({ refreshKey, onNew }: { refreshKey: number; onNew?: () => void }) {
+/**
+ * 会话空间卡片：合并讨论 + 分析运行，按最新排序。
+ * 传入 onDelete 时每张卡片显示删除按钮（type + id）。
+ */
+export function SpacesCards({
+  refreshKey,
+  onNew,
+  onDelete,
+  maxItems = 24,
+}: {
+  refreshKey: number;
+  onNew?: () => void;
+  onDelete?: (type: "discussion" | "run", id: string) => void;
+  maxItems?: number;
+}) {
   const router = useRouter();
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [loading, setLoading] = useState(true);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const fetchLimit = Math.min(100, maxItems);
 
   async function load() {
     try {
       const [disc, runs] = await Promise.all([
-        fetch("/api/v1/discussions").then((r) => r.json()),
-        fetch("/api/v1/runs?page_size=24").then((r) => r.json()),
+        fetch("/api/v1/discussions?page_size=100").then((r) => r.json()),
+        fetch(`/api/v1/runs?page_size=${fetchLimit}`).then((r) => r.json()),
       ]);
 
       const dSpaces: Space[] = disc.code === 0 ? disc.data.items.map((i: { id: string; brief: string; status: string; personaCount?: number; attachmentName?: string | null; createdAt: string }) => ({
@@ -62,7 +76,7 @@ export function SpacesCards({ refreshKey, onNew }: { refreshKey: number; onNew?:
       })) : [];
 
       const all = [...dSpaces, ...rSpaces].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
-      setSpaces(all.slice(0, 24));
+      setSpaces(all.slice(0, maxItems));
 
       const hasRunning = all.some((s) => s.status === "running" || s.status === "pending");
       if (hasRunning) {
@@ -120,12 +134,21 @@ export function SpacesCards({ refreshKey, onNew }: { refreshKey: number; onNew?:
         const meta = STATUS_META[s.status] ?? STATUS_META.pending;
         const IconComponent = meta.icon;
         const isDisc = s.type === "discussion";
+        const href = isDisc ? `/discussions?id=${s.id}` : `/runs/${s.id}`;
         return (
-          <button
+          <div
             key={`${s.type}-${s.id}`}
-            onClick={() => router.push(isDisc ? `/discussions?id=${s.id}` : `/runs/${s.id}`)}
+            role="button"
+            tabIndex={0}
+            onClick={() => router.push(href)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                router.push(href);
+              }
+            }}
             className={cn(
-              "group flex flex-col gap-3 rounded-2xl border border-hairline bg-white p-4 text-left transition-all duration-200",
+              "group flex cursor-pointer flex-col gap-3 rounded-2xl border border-hairline bg-white p-4 text-left transition-all duration-200",
               "hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-[0_14px_44px_rgba(0,0,0,0.08)]",
               i < 6 && "fl-rise",
               i < 6 && `fl-rise-delay-${(i % 3) + 1}`
@@ -136,10 +159,26 @@ export function SpacesCards({ refreshKey, onNew }: { refreshKey: number; onNew?:
                 {isDisc ? <ChatCircleDots size={12} weight="fill" /> : null}
                 {s.meta}
               </Badge>
-              <Badge variant={meta.badge}>
-                <IconComponent size={12} weight="fill" />
-                {meta.label}
-              </Badge>
+              <div className="flex items-center gap-1.5">
+                <Badge variant={meta.badge}>
+                  <IconComponent size={12} weight="fill" />
+                  {meta.label}
+                </Badge>
+                {onDelete && (
+                  <button
+                    type="button"
+                    aria-label="删除会话"
+                    title="删除会话"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDelete(s.type, s.id);
+                    }}
+                    className="flex h-6 w-6 items-center justify-center rounded-md text-ink-40 transition-colors hover:bg-error/10 hover:text-error"
+                  >
+                    <Trash size={14} />
+                  </button>
+                )}
+              </div>
             </div>
             <span className="line-clamp-1 text-[15px] font-semibold leading-[1.3] text-ink">{s.title}</span>
             <p className="line-clamp-2 text-[13px] leading-[1.55] text-ink-48">{s.preview}</p>
@@ -152,7 +191,7 @@ export function SpacesCards({ refreshKey, onNew }: { refreshKey: number; onNew?:
             <div className="mt-auto pt-1 text-[11px] text-ink-40">
               {new Date(s.createdAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
             </div>
-          </button>
+          </div>
         );
       })}
     </div>
