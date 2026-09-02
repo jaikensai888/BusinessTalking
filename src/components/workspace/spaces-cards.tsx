@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, ChatCircleDots, Check, CheckCircle, Clock, FilePdf, FileText, Play, Trash, XCircle } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
+import { CopyId } from "@/components/ui/copy-id";
 
 interface Space {
   id: string;
@@ -16,6 +17,7 @@ interface Space {
   attachmentName?: string | null;
   artifactCount?: number;
   hasReport?: boolean;
+  shortId?: string | null;
   createdAt: string;
 }
 
@@ -63,7 +65,7 @@ export function SpacesCards({
         fetch(`/api/v1/runs?page_size=${fetchLimit}`).then((r) => r.json()),
       ]);
 
-      const dSpaces: Space[] = disc.code === 0 ? disc.data.items.map((i: { id: string; brief: string; status: string; personaCount?: number; attachmentName?: string | null; artifactCount?: number; createdAt: string }) => ({
+      const dSpaces: Space[] = disc.code === 0 ? disc.data.items.map((i: { id: string; brief: string; status: string; personaCount?: number; attachmentName?: string | null; artifactCount?: number; shortId?: string | null; createdAt: string }) => ({
         id: i.id,
         type: "discussion",
         title: i.brief.slice(0, 24),
@@ -72,6 +74,7 @@ export function SpacesCards({
         meta: i.personaCount === 1 ? "1 对 1" : "讨论",
         attachmentName: i.attachmentName,
         artifactCount: i.artifactCount ?? 0,
+        shortId: i.shortId,
         createdAt: i.createdAt,
       })) : [];
 
@@ -224,7 +227,8 @@ export function SpacesCards({
                   {isDisc ? `产物 ${s.artifactCount} 份` : "已出报告"}
                 </span>
               )}
-              <span className="ml-auto shrink-0 text-[11px] text-ink-40">
+              <span className="ml-auto flex shrink-0 items-center gap-2 text-[11px] text-ink-40">
+                <CopyId id={s.shortId} />
                 {new Date(s.createdAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
               </span>
             </div>

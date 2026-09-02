@@ -237,6 +237,7 @@ model Discussion {
   attachmentName      String?   // 引用的文件（上传资料）文件名
   attachmentCharCount Int?      // 引用的文件提取字符数
   attachmentTruncated Boolean?  // 引用的文件是否被截取
+  shortId             String?   @unique // 便于引用/排查的短编号（如 RW3K9Q）
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 

@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { err, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { runDiscussion } from "@/lib/discussion/runner";
+import { genShortId } from "@/lib/short-id";
 
 /** POST /api/v1/discussions — 创建多人讨论（异步推进） */
 export async function POST(req: Request) {
@@ -37,6 +38,15 @@ export async function POST(req: Request) {
 
   // 单人 = 1 对 1：不自动跑多轮，进入"ready"等待用户提问；多人 = 自动交锋
   const isOneOnOne = personaIds.length === 1;
+
+  // 生成唯一短编号（便于用户引用/排查）；碰撞时重试
+  let shortId = genShortId();
+  for (let i = 0; i < 8; i++) {
+    const exists = await prisma.discussion.count({ where: { shortId } });
+    if (exists === 0) break;
+    shortId = genShortId();
+  }
+
   const d = await prisma.discussion.create({
     data: {
       brief,
@@ -47,12 +57,14 @@ export async function POST(req: Request) {
       attachmentName,
       attachmentCharCount,
       attachmentTruncated,
+      shortId,
     },
   });
   if (!isOneOnOne) void runDiscussion(d.id);
 
   return ok({
     id: d.id,
+    shortId,
     status: d.status,
     mode: isOneOnOne ? "1on1" : "group",
     rounds: d.rounds,
@@ -75,6 +87,7 @@ export async function GET(req: Request) {
       status: true,
       personaIds: true,
       attachmentName: true,
+      shortId: true,
       createdAt: true,
       _count: { select: { artifacts: true } },
     },
@@ -84,6 +97,7 @@ export async function GET(req: Request) {
       const personaIds = (i.personaIds as string[]) ?? [];
       return {
         id: i.id,
+        shortId: i.shortId,
         brief: i.brief.slice(0, 60),
         rounds: i.rounds,
         status: i.status,

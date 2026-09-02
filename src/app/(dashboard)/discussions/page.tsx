@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
 import { EmptyState } from "@/components/ui/empty-state";
+import { CopyId } from "@/components/ui/copy-id";
 
 interface PersonaOption { id: string; name: string; perspectiveType: string }
 interface Msg { id: string; sender: string; role: string; turn: number; content: string; createdAt: string }
@@ -22,6 +23,7 @@ interface Discussion {
   attachmentName?: string | null;
   attachmentCharCount?: number | null;
   attachmentTruncated?: boolean | null;
+  shortId?: string | null;
 }
 
 const TYPE_LABEL: Record<string, string> = {
@@ -425,12 +427,15 @@ export default function DiscussionsPage() {
                   {isOne ? `${current.personas?.[0]?.name ?? "专家"}` : `讨论：${current.brief.slice(0, 30)}…`}
                 </div>
               </div>
-              <div className="text-[12px] text-ink-48">
-                {current.status === "done" && "已结束"}
-                {current.status === "failed" && "失败"}
-                {running && "讨论中…"}
-                {isOne && "一对一交流"}
-                {!isOne && ` · ${current.rounds} 轮`}
+              <div className="flex items-center gap-2 text-[12px] text-ink-48">
+                <span>
+                  {current.status === "done" && "已结束"}
+                  {current.status === "failed" && "失败"}
+                  {running && "讨论中…"}
+                  {isOne && "一对一交流"}
+                  {!isOne && ` · ${current.rounds} 轮`}
+                </span>
+                <CopyId id={current.shortId} />
               </div>
             </div>
             <div className="ml-auto flex gap-2">
