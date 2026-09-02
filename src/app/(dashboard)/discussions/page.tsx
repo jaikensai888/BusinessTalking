@@ -272,7 +272,7 @@ export default function DiscussionsPage() {
   const personaNames = new Set((current?.personas ?? []).map((p) => p.name));
 
   return (
-    <div className="mx-auto max-w-[1500px] px-6 py-4">
+    <div className="mx-auto max-w-[1500px] h-[calc(100vh-44px)] px-6">
       {/* 发起讨论（仅非查看模式） */}
       {!viewId && (
         <div
@@ -384,54 +384,9 @@ export default function DiscussionsPage() {
           <div className="h-48 animate-pulse rounded-2xl bg-pearl" />
         )
       ) : (
-        <div className="flex h-[calc(100vh-32px)]">
-          {/* 左列：聊天 */}
+        <div className="flex h-full">
+          {/* 左列：聊天（无顶部标题栏） */}
           <div className="flex min-w-0 flex-1 flex-col">
-          {/* 顶部：标题栏（独立一层） */}
-          <div className="flex items-center gap-3 border-b border-divider-soft bg-white px-6 py-3">
-            <div className="flex -space-x-2">
-              {(current.personas ?? []).map((p) => (
-                <Avatar key={p.id} name={p.name} size="md" className="ring-2 ring-white" />
-              ))}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span
-                  className={cn(
-                    "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold",
-                    isOne ? "bg-primary/10 text-primary" : "bg-parchment text-ink-60"
-                  )}
-                >
-                  {isOne ? "1 对 1" : "多人"}
-                </span>
-                <div className="truncate text-[15px] font-semibold tracking-[-0.2px] text-ink">
-                  {isOne ? `${current.personas?.[0]?.name ?? "专家"}` : `讨论：${current.brief.slice(0, 30)}…`}
-                </div>
-              </div>
-              <div className="mt-0.5 flex items-center gap-2 text-[12px] text-ink-48">
-                <span className="flex items-center gap-1.5">
-                  <span
-                    className={cn(
-                      "h-1.5 w-1.5 rounded-full",
-                      current.status === "running" || running ? "bg-success" : current.status === "done" ? "bg-primary/50" : "bg-ink-40"
-                    )}
-                  />
-                  {current.status === "done" && "已结束"}
-                  {current.status === "failed" && "失败"}
-                  {running && "讨论中…"}
-                  {isOne && "一对一交流"}
-                  {!isOne && `${current.rounds} 轮`}
-                </span>
-                <CopyId id={current.shortId} />
-              </div>
-            </div>
-            <div className="ml-auto flex shrink-0 gap-2">
-              <Button variant="dark" size="sm" onClick={summarize} disabled={summarizing || current.messages.length === 0}>
-                {summarizing ? "总结中…" : "总结"}
-              </Button>
-            </div>
-          </div>
-
               <div
                 ref={scrollRef}
                 className="flex-1 space-y-6 overflow-y-auto bg-parchment px-6 py-6"
@@ -562,9 +517,47 @@ export default function DiscussionsPage() {
               </div>
             </div>
 
-            {/* 右侧：参与人（独立一层） */}
-            <aside className="flex w-[300px] shrink-0 flex-col border-l border-hairline">
-              {/* 参与人（上） */}
+            {/* 右侧：标题 + 参与人 + 产物/引用 */}
+            <aside className="flex w-[320px] shrink-0 flex-col border-l border-hairline">
+              {/* 上：标题 + id + 总结 */}
+              <div className="border-b border-divider-soft bg-white px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={cn(
+                      "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                      isOne ? "bg-primary/10 text-primary" : "bg-parchment text-ink-60"
+                    )}
+                  >
+                    {isOne ? "1 对 1" : "多人"}
+                  </span>
+                  <div className="truncate text-[15px] font-semibold tracking-[-0.2px] text-ink">
+                    {isOne ? `${current.personas?.[0]?.name ?? "专家"}` : `讨论：${current.brief.slice(0, 30)}…`}
+                  </div>
+                </div>
+                <div className="mt-1 flex items-center justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-2 text-[12px] text-ink-48">
+                    <span className="flex items-center gap-1.5">
+                      <span
+                        className={cn(
+                          "h-1.5 w-1.5 rounded-full",
+                          current.status === "running" || running ? "bg-success" : current.status === "done" ? "bg-primary/50" : "bg-ink-40"
+                        )}
+                      />
+                      {current.status === "done" && "已结束"}
+                      {current.status === "failed" && "失败"}
+                      {running && "讨论中…"}
+                      {isOne && "一对一交流"}
+                      {!isOne && `${current.rounds} 轮`}
+                    </span>
+                    <CopyId id={current.shortId} />
+                  </div>
+                  <Button variant="dark" size="sm" onClick={summarize} disabled={summarizing || current.messages.length === 0}>
+                    {summarizing ? "总结中…" : "总结"}
+                  </Button>
+                </div>
+              </div>
+
+              {/* 中：参与人 */}
               <div className="flex min-h-0 flex-[1.1] flex-col">
                 <div className="flex items-center gap-2 border-b border-divider-soft bg-pearl px-4 py-3 text-[12px] font-semibold uppercase tracking-wide text-ink-40">
                   <UsersThree size={14} /> {isOne ? "交流对象" : "参与人"}（{current.personas?.length ?? 0}）
@@ -589,12 +582,23 @@ export default function DiscussionsPage() {
                 </div>
               </div>
 
-              {/* 产物（中） */}
-              <div className="flex min-h-0 flex-[0.9] flex-col border-t border-divider-soft">
+              {/* 下：产物与引用 */}
+              <div className="flex min-h-0 flex-[1] flex-col border-t border-divider-soft">
                 <div className="flex items-center gap-2 border-b border-divider-soft bg-pearl px-4 py-3 text-[12px] font-semibold uppercase tracking-wide text-ink-40">
-                  <FileText size={14} /> 产物（{current.artifacts?.length ?? 0}）
+                  <FileText size={14} /> 产物与引用
                 </div>
-                <div className="flex-1 overflow-y-auto bg-parchment/40 p-3">
+                <div className="flex-1 space-y-3 overflow-y-auto bg-parchment/40 p-3">
+                  {current.attachmentName && (
+                    <div className="flex items-center gap-2.5 rounded-lg border border-hairline bg-white p-2.5">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                        <FilePdf size={16} weight="duotone" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[13px] font-medium text-ink">{current.attachmentName}</div>
+                        <div className="text-[11px] text-ink-48">已读取 {current.attachmentCharCount ?? 0} 字{current.attachmentTruncated ? "（截取）" : ""}</div>
+                      </div>
+                    </div>
+                  )}
                   {current.artifacts && current.artifacts.length > 0 ? (
                     <div className="space-y-2.5">
                       {current.artifacts.map((a) => (
@@ -613,30 +617,6 @@ export default function DiscussionsPage() {
                   ) : (
                     <div className="flex items-center gap-2 rounded-lg border border-dashed border-hairline bg-parchment/50 px-3 py-3 text-[11px] text-ink-48">
                       <FileText size={14} className="text-ink-40" /> 点「总结」生成 md 报告
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* 引用（下） */}
-              <div className="flex min-h-0 flex-[0.7] flex-col border-t border-divider-soft">
-                <div className="flex items-center gap-2 border-b border-divider-soft bg-pearl px-4 py-3 text-[12px] font-semibold uppercase tracking-wide text-ink-40">
-                  <FilePdf size={14} /> 引用
-                </div>
-                <div className="flex-1 overflow-y-auto bg-parchment/40 p-3">
-                  {current.attachmentName ? (
-                    <div className="flex items-center gap-2.5 rounded-lg border border-hairline bg-white p-2.5">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-                        <FilePdf size={16} weight="duotone" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-[13px] font-medium text-ink">{current.attachmentName}</div>
-                        <div className="text-[11px] text-ink-48">已读取 {current.attachmentCharCount ?? 0} 字{current.attachmentTruncated ? "（截取）" : ""}</div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2 rounded-lg border border-dashed border-hairline bg-parchment/50 px-3 py-3 text-[11px] text-ink-48">
-                      <FilePdf size={14} className="text-ink-40" /> 暂无引用文件
                     </div>
                   )}
                 </div>
