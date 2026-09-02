@@ -237,7 +237,8 @@ model Discussion {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  messages DiscussionMessage[]
+  messages   DiscussionMessage[]
+  artifacts  DiscussionArtifact[]
 
   @@index([status])
 }
@@ -250,6 +251,22 @@ model DiscussionMessage {
   role         String   // persona | user | summary
   turn         Int
   content      String
+  createdAt    DateTime @default(now())
+
+  discussion Discussion @relation(fields: [discussionId], references: [id], onDelete: Cascade)
+
+  @@index([discussionId])
+}
+
+// 讨论产物（报告/文档）：综合建议等汇总后保存为可下载的 md 文件，列入讨论下方的“产物”列表
+model DiscussionArtifact {
+  id           String   @id @default(cuid())
+  discussionId String
+  title        String
+  type         String   @default("report") // report | note
+  filePath     String?  // 相对 cwd 的 md 磁盘路径（data/reports/…）
+  summary      String?  // 一句摘要
+  content      String   // 产物全文（md 源）
   createdAt    DateTime @default(now())
 
   discussion Discussion @relation(fields: [discussionId], references: [id], onDelete: Cascade)

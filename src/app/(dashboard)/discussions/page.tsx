@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLineDown, ChatCircleDots, PaperPlaneTilt, UsersThree } from "@phosphor-icons/react";
+import { ChatCircleDots, FileText, PaperPlaneTilt, UsersThree, X } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
@@ -10,7 +10,8 @@ import { EmptyState } from "@/components/ui/empty-state";
 
 interface PersonaOption { id: string; name: string; perspectiveType: string }
 interface Msg { id: string; sender: string; role: string; turn: number; content: string; createdAt: string }
-interface Discussion { id: string; brief: string; rounds: number; status: string; personas: PersonaOption[]; messages: Msg[] }
+interface Artifact { id: string; title: string; type: string; filePath?: string | null; summary?: string | null; content: string; createdAt: string }
+interface Discussion { id: string; brief: string; rounds: number; status: string; personas: PersonaOption[]; messages: Msg[]; artifacts?: Artifact[] }
 
 const TYPE_LABEL: Record<string, string> = {
   investor: "投资人", entrepreneur: "创业者", economist: "经济学家", analyst: "分析师",
@@ -58,6 +59,7 @@ export default function DiscussionsPage() {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const steerRef = useRef<HTMLInputElement | null>(null);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [viewArtifact, setViewArtifact] = useState<Artifact | null>(null);
 
   useEffect(() => {
     fetch("/api/v1/personas?page_size=100")
@@ -185,6 +187,16 @@ export default function DiscussionsPage() {
       input?.focus();
       input?.setSelectionRange(nextPos, nextPos);
     });
+  };
+
+  const downloadArtifact = (a: Artifact) => {
+    const blob = new Blob([a.content], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${(a.title || "报告").replace(/[\\/:*?"<>|]/g, "-")}.md`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   const running = current && (current.status === "running" || current.status === "pending");
@@ -400,6 +412,89 @@ export default function DiscussionsPage() {
                 </div>
               </div>
             </aside>
+          </div>
+        </div>
+      )}
+
+      {/* 产物列表：综合建议生成后汇总成 md 报告 */}
+      {current && (
+        <div className="mt-6">
+          <div className="mb-3 flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <FileText size={16} weight="duotone" />
+            </div>
+            <h2 className="text-[16px] font-semibold tracking-[-0.3px]">产物</h2>
+            <span className="text-[12px] text-ink-40">汇总讨论，保存成可下载的 md 报告</span>
+          </div>
+          {current.artifacts && current.artifacts.length > 0 ? (
+            <div className="grid gap-2.5 sm:grid-cols-2">
+              {current.artifacts.map((a) => (
+                <div key={a.id} className="flex items-start gap-3 rounded-xl border border-hairline bg-white p-3.5">
+                  <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <FileText size={18} weight="duotone" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[14px] font-medium text-ink">{a.title}</div>
+                    {a.summary && (
+                      <div className="mt-0.5 line-clamp-2 text-[12px] leading-[1.5] text-ink-48">{a.summary}</div>
+                    )}
+                    <div className="mt-2 flex items-center gap-3 text-[12px]">
+                      <button onClick={() => setViewArtifact(a)} className="font-medium text-primary hover:underline">
+                        查看
+                      </button>
+                      <button onClick={() => downloadArtifact(a)} className="text-ink-60 hover:text-primary">
+                        下载 md
+                      </button>
+                      <span className="ml-auto text-ink-40">
+                        {new Date(a.createdAt).toLocaleDateString("zh-CN")}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="flex items-center gap-3 rounded-xl border border-dashed border-hairline bg-parchment/50 px-4 py-5 text-[13px] text-ink-48">
+              <FileText size={16} className="text-ink-40" />
+              还没有产物。点击上方「综合建议」即可把讨论汇总成一份 md 报告。
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 产物预览 */}
+      {viewArtifact && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6"
+          onClick={() => setViewArtifact(null)}
+        >
+          <div
+            className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 border-b border-divider-soft px-5 py-4">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <FileText size={16} weight="duotone" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[15px] font-semibold text-ink">{viewArtifact.title}</div>
+                <div className="text-[12px] text-ink-40">
+                  Markdown 报告 · {new Date(viewArtifact.createdAt).toLocaleString("zh-CN", { hour12: false })}
+                </div>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => downloadArtifact(viewArtifact)}>
+                下载 md
+              </Button>
+              <button
+                onClick={() => setViewArtifact(null)}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-48 hover:bg-parchment"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto bg-parchment/30 p-5">
+              <pre className="whitespace-pre-wrap text-[13px] leading-[1.7] text-ink">{viewArtifact.content}</pre>
+            </div>
           </div>
         </div>
       )}
