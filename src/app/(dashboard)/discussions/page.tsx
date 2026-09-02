@@ -278,7 +278,7 @@ export default function DiscussionsPage() {
           <ChatCircleDots size={22} weight="duotone" />
         </div>
         <div>
-          <h1 className="font-serif text-[27px] font-semibold leading-[1.2] tracking-[-0.2px]">讨论</h1>
+          <h1 className="text-[26px] font-semibold leading-[1.2] tracking-[-0.4px]">讨论</h1>
           <p className="text-[13px] text-ink-48">单人：你问我答的一对一交流；多人：多位专家互相交锋，给你建议</p>
         </div>
       </div>
@@ -412,7 +412,7 @@ export default function DiscussionsPage() {
                 >
                   {isOne ? "1 对 1" : "多人"}
                 </span>
-                <div className="truncate font-serif text-[16px] font-semibold tracking-[-0.2px] text-ink">
+                <div className="truncate text-[15px] font-semibold tracking-[-0.2px] text-ink">
                   {isOne ? `${current.personas?.[0]?.name ?? "专家"}` : `讨论：${current.brief.slice(0, 30)}…`}
                 </div>
               </div>
@@ -445,7 +445,7 @@ export default function DiscussionsPage() {
             <div className="flex min-w-0 flex-1 flex-col">
               <div
                 ref={scrollRef}
-                className="flex-1 space-y-6 overflow-y-auto bg-[radial-gradient(120%_60%_at_50%_-20%,rgba(0,0,0,0.03),transparent_70%)] bg-[#f6f1ea] px-6 py-8"
+                className="flex-1 space-y-6 overflow-y-auto bg-parchment px-6 py-8 shadow-[inset_0_1px_0_rgba(0,0,0,0.05),inset_0_-1px_0_rgba(0,0,0,0.03)]"
               >
                 {current.messages.length === 0 ? (
                   <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
@@ -495,7 +495,7 @@ export default function DiscussionsPage() {
                                 "inline-block rounded-2xl px-4 py-2.5 text-left text-[14px]",
                                 isUser
                                   ? "bg-primary text-white rounded-2xl rounded-tr-md shadow-[0_6px_18px_rgba(0,102,204,0.22)]"
-                                  : "bg-white text-ink rounded-2xl rounded-tl-md shadow-[0_2px_14px_rgba(60,50,40,0.08)] ring-1 ring-black/[0.04]"
+                                  : "bg-white text-ink rounded-2xl rounded-tl-md shadow-[0_2px_10px_rgba(0,0,0,0.06)] ring-1 ring-black/5"
                               )}
                             >
                               <Markdown names={personaNames} tone={isUser ? "dark" : "light"}>
@@ -521,7 +521,7 @@ export default function DiscussionsPage() {
               </div>
 
               {/* 底部输入条（独立一层） */}
-              <div className="border-t border-divider-soft bg-white px-4 py-3">
+              <div className="border-t border-hairline bg-white px-4 py-3 shadow-[0_-4px_14px_rgba(0,0,0,0.05)]">
                 <div className="relative flex items-center gap-2 rounded-2xl border border-hairline bg-white p-2 shadow-[0_2px_10px_rgba(0,0,0,0.05)] transition-colors focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10">
                   {!isOne && mentionQuery !== null && mentionOptions.length > 0 && (
                     <div className="absolute bottom-full left-0 right-0 mb-2 overflow-hidden rounded-xl border border-hairline bg-white shadow-[0_8px_24px_rgba(0,0,0,0.1)]">
@@ -574,13 +574,13 @@ export default function DiscussionsPage() {
             </div>
 
             {/* 右侧：参与人（独立一层） */}
-            <aside className="w-60 shrink-0 border-l border-divider-soft bg-parchment/30">
-              <div className="flex items-center gap-2 border-b border-divider-soft bg-white/50 px-4 py-3 text-[12px] font-semibold uppercase tracking-wide text-ink-40">
+            <aside className="w-60 shrink-0 border-l border-hairline bg-pearl">
+              <div className="flex items-center gap-2 border-b border-divider-soft bg-parchment/50 px-4 py-3 text-[12px] font-semibold uppercase tracking-wide text-ink-40">
                 <UsersThree size={14} /> {isOne ? "交流对象" : "参与人"}（{current.personas?.length ?? 0}）
               </div>
               <div className="space-y-1 p-2">
                 {(current.personas ?? []).map((p) => (
-                  <div key={p.id} className="flex items-center gap-2.5 rounded-lg px-3 py-2 hover:bg-white">
+                  <div key={p.id} className="flex items-center gap-2.5 rounded-lg px-3 py-2 hover:bg-parchment/70">
                     <Avatar name={p.name} size="sm" />
                     <div className="min-w-0">
                       <div className="truncate text-[13px] font-medium text-ink">{p.name}</div>
@@ -588,7 +588,7 @@ export default function DiscussionsPage() {
                     </div>
                   </div>
                 ))}
-                <div className="flex items-center gap-2.5 rounded-lg px-3 py-2 hover:bg-white">
+                <div className="flex items-center gap-2.5 rounded-lg px-3 py-2 hover:bg-parchment/70">
                   <Avatar name="我" size="sm" />
                   <div>
                     <div className="text-[13px] font-medium text-ink">我</div>
