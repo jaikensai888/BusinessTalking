@@ -110,33 +110,41 @@ export default function WorkspacePage() {
     }
   }, [searchParams]);
 
-  const filteredRecipes = mentionQuery ? recipes.filter((r) => r.name.includes(mentionQuery)) : recipes;
-  const filteredPersonas = mentionQuery ? personas.filter((p) => p.name.includes(mentionQuery)) : personas;
+  const q = mentionQuery.trim();
+  const filteredRecipes = q ? recipes.filter((r) => r.name.includes(q)) : recipes;
+  const filteredPersonas = q ? personas.filter((p) => p.name.includes(q)) : personas;
 
-  const setPersona = (p: PersonaOption) => {
-    setMentionOpen(false);
-    const cleaned = text.replace(/@[^\s@]*/g, "").replace(/\s+/g, " ").trim();
-    setText(`${cleaned} @${p.name} `.trimStart());
-    inputRef.current?.focus();
-  };
-
-  const handleBeforeInput = (value: string, caret: number) => {
-    const before = value.slice(0, caret);
-    const atIdx = before.lastIndexOf("@");
-    if (atIdx !== -1) {
-      setMentionQuery(before.slice(atIdx + 1));
+  /**
+   * 判断输入框当前是否正在输入 @提及，并提取查询词。
+   * 基于文本末尾的 @token（无空格）而非光标位置——兼容中文 IME 组合输入（组合期间光标不可靠）。
+   */
+  const handleBeforeInput = (value: string) => {
+    const m = value.match(/@([^\s@]*)$/);
+    if (m) {
+      setMentionQuery(m[1]);
       setMentionOpen(true);
     } else {
       setMentionOpen(false);
     }
   };
 
+  /** 仅替换文本末尾正在输入的 @token；若末尾无 @token 则追加。保留已在文本中的其他人格/配方 */
+  const replaceActiveMention = (insert: string) => {
+    const m = text.match(/@[^\s@]*$/);
+    return m ? `${text.slice(0, m.index)}${insert}` : `${text} ${insert}`.trimStart();
+  };
+
+  const setPersona = (p: PersonaOption) => {
+    setMentionOpen(false);
+    setText(replaceActiveMention(`@${p.name} `));
+    inputRef.current?.focus();
+  };
+
   const setRecipe = (recipe: RecipeOption) => {
     setSelectedRecipeId(recipe.id);
     setRecipeDropdown(false);
     setMentionOpen(false);
-    const cleaned = text.replace(/@[^\s@]*/g, "").replace(/\s+/g, " ").trim();
-    setText(`${cleaned} @${recipe.name} `.trimStart());
+    setText(replaceActiveMention(`@${recipe.name} `));
     inputRef.current?.focus();
   };
 
@@ -313,7 +321,7 @@ export default function WorkspacePage() {
                 placeholder="输入你的商业想法，例如：面向独立开发者的 AI 定价分析工具，订阅制，月费 49 元…"
                 onChange={(e) => {
                   setText(e.target.value);
-                  handleBeforeInput(e.target.value, e.target.selectionStart ?? e.target.value.length);
+                  handleBeforeInput(e.target.value);
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Escape") {

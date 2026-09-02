@@ -60,7 +60,7 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/v1/discussions
       messages: d.messages.map((m) => ({ role: m.role, sender: m.sender, content: m.content, turn: m.turn })),
       summary: content,
     });
-  } catch (e) {
+  } catch {
     /* 报告落盘失败：记录但不断言建议生成失败 */
   }
 
