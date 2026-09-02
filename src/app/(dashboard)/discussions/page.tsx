@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import { ChatCircleDots, FilePdf, FileText, PaperPlaneTilt, Plus, SpinnerGap, UsersThree, X } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
 import { EmptyState } from "@/components/ui/empty-state";
 import { CopyId } from "@/components/ui/copy-id";
+import { Markdown } from "@/components/ui/markdown";
 
 interface PersonaOption { id: string; name: string; perspectiveType: string }
 interface Msg { id: string; sender: string; role: string; turn: number; content: string; createdAt: string }
@@ -30,29 +31,6 @@ const TYPE_LABEL: Record<string, string> = {
   investor: "投资人", entrepreneur: "创业者", economist: "经济学家", analyst: "分析师",
   customer: "客户", competitor: "竞对", custom: "自定义",
 };
-
-/** 高亮消息中的 @人物 提及（仅对在场的人格高亮） */
-function renderContent(content: string, personaNames: Set<string>, accent = "font-medium text-primary"): ReactNode[] {
-  const parts: ReactNode[] = [];
-  const regex = /@([\p{L}\p{N}\u4e00-\u9fff_\-·]+)/gu;
-  let last = 0;
-  let key = 0;
-  let m: RegExpExecArray | null;
-  while ((m = regex.exec(content))) {
-    const name = m[1];
-    if (last < m.index) parts.push(content.slice(last, m.index));
-    if (personaNames.has(name)) {
-      parts.push(
-        <span key={key++} className={accent}>@{name}</span>
-      );
-    } else {
-      parts.push(`@${name}`);
-    }
-    last = m.index + m[0].length;
-  }
-  if (last < content.length) parts.push(content.slice(last));
-  return parts;
-}
 
 /** 多人讨论室（微信群聊式）：参与者列表 + 微信气泡流；可插话、综合建议 */
 export default function DiscussionsPage() {
@@ -471,11 +449,11 @@ export default function DiscussionsPage() {
                   current.messages.map((m) => {
                     if (m.role === "summary") {
                       return (
-                        <div key={m.id} className="mx-auto max-w-[85%] rounded-xl bg-success/12 px-4 py-3 text-[13px] leading-[1.7] text-ink-80">
-                          <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-[#1f7a43]">
-                            <span className="flex h-4 w-4 items-center justify-center rounded bg-[#1f7a43]/15">📋</span> 总结
+                        <div key={m.id} className="mx-auto max-w-[85%] rounded-2xl border border-success/20 bg-success/10 px-4 py-3 text-[13px] text-ink-80">
+                          <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold text-[#1f7a43]">
+                            <span className="flex h-4 w-4 items-center justify-center rounded-md bg-[#1f7a43]/15">📋</span> 总结
                           </div>
-                          <div className="whitespace-pre-wrap">{m.content}</div>
+                          <Markdown>{m.content}</Markdown>
                         </div>
                       );
                     }
@@ -491,13 +469,15 @@ export default function DiscussionsPage() {
                           </div>
                           <div
                             className={cn(
-                              "inline-block rounded-2xl px-3.5 py-2 text-left text-[14px] leading-[1.6] whitespace-pre-wrap",
+                              "inline-block rounded-2xl px-4 py-2.5 text-left text-[14px]",
                               isUser
-                                ? "bg-primary text-white rounded-tr-sm shadow-[0_4px_12px_rgba(0,102,204,0.2)]"
-                                : "bg-white text-ink rounded-tl-sm shadow-[0_1px_3px_rgba(0,0,0,0.06)]"
+                                ? "bg-primary text-white rounded-tr-sm shadow-[0_6px_18px_rgba(0,102,204,0.22)]"
+                                : "bg-white text-ink rounded-tl-sm shadow-[0_2px_10px_rgba(0,0,0,0.06)] ring-1 ring-black/5"
                             )}
                           >
-                            {renderContent(m.content, personaNames, isUser ? "font-semibold underline decoration-2 underline-offset-2" : undefined)}
+                            <Markdown names={personaNames} tone={isUser ? "dark" : "light"}>
+                              {m.content}
+                            </Markdown>
                           </div>
                         </div>
                       </div>
