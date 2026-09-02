@@ -227,6 +227,8 @@ export default function WorkspacePage() {
     setRunning(true);
     setError(null);
     try {
+      // 用户在输入框里写的提问（去掉 @ 人格标记），要作为讨论的第一条消息带进去
+      const message = text.replace(/@[^\s@]*/g, "").trim();
       const brief = buildIdeaInput();
       if (!brief.trim()) {
         setError("请先输入讨论主题");
@@ -240,6 +242,7 @@ export default function WorkspacePage() {
           brief,
           personaIds,
           rounds: 5,
+          message,
           attachment: attachment
             ? { filename: attachment.filename, charCount: attachment.charCount, truncated: attachment.truncated }
             : null,

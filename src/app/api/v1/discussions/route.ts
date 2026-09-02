@@ -2,14 +2,16 @@ import { Prisma } from "@prisma/client";
 import { err, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { runDiscussion } from "@/lib/discussion/runner";
+import { replyOneOnOne } from "@/lib/discussion/oneonone";
 import { genShortId } from "@/lib/short-id";
 
-/** POST /api/v1/discussions — 创建多人讨论（异步推进） */
+/** POST /api/v1/discussions — 创建多人讨论（异步推进）；message = 用户首条提问 */
 export async function POST(req: Request) {
   let body: {
     brief?: unknown;
     personaIds?: unknown;
     rounds?: unknown;
+    message?: unknown;
     attachment?: { filename?: unknown; charCount?: unknown; truncated?: unknown };
   };
   try {
@@ -23,6 +25,7 @@ export async function POST(req: Request) {
     ? body.personaIds.filter((x): x is string => typeof x === "string")
     : [];
   const rounds = Math.min(10, Math.max(1, Number(body.rounds ?? 5) || 5));
+  const message = typeof body.message === "string" ? body.message.trim() : "";
 
   if (!brief || brief.length > 10000) return err(40001, "brief 必填（1~10000 字符）", 400);
   if (personaIds.length < 1) return err(40001, "至少选择 1 个人格参与讨论", 400);
@@ -60,6 +63,32 @@ export async function POST(req: Request) {
       shortId,
     },
   });
+
+  // 把用户在输入框里的提问作为第一条消息带进讨论，人设可据此作答
+  if (message) {
+    await prisma.discussionMessage.create({
+      data: { discussionId: d.id, role: "user", sender: "你", turn: 0, content: message },
+    });
+    // 单人：立即由该人设作答（你问了，它就回答）
+    if (isOneOnOne) {
+      const persona = await prisma.persona.findUnique({
+        where: { id: personaIds[0] },
+        select: { name: true },
+      });
+      const reply = await replyOneOnOne(d.id, personaIds[0], message);
+      await prisma.discussionMessage.create({
+        data: {
+          discussionId: d.id,
+          personaId: personaIds[0],
+          sender: persona?.name ?? "专家",
+          role: "persona",
+          turn: 0,
+          content: reply,
+        },
+      });
+    }
+  }
+
   if (!isOneOnOne) void runDiscussion(d.id);
 
   return ok({
@@ -69,6 +98,7 @@ export async function POST(req: Request) {
     mode: isOneOnOne ? "1on1" : "group",
     rounds: d.rounds,
     attachmentName,
+    hasFirstMessage: Boolean(message),
     createdAt: d.createdAt,
   });
 }
