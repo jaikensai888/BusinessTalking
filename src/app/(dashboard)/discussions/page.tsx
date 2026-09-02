@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { ChatCircleDots, FilePdf, FileText, PaperPlaneTilt, Plus, SpinnerGap, UsersThree, X } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -54,7 +54,6 @@ function renderContent(content: string, personaNames: Set<string>, accent = "fon
 
 /** 多人讨论室（微信群聊式）：参与者列表 + 微信气泡流；可插话、综合建议 */
 export default function DiscussionsPage() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const viewId = searchParams.get("id");
   const [personas, setPersonas] = useState<PersonaOption[]>([]);
@@ -190,17 +189,31 @@ export default function DiscussionsPage() {
 
   const sendSteer = async () => {
     if (!current || !steer.trim() || sending) return;
+    const question = steer;
+    // 立即清空输入框，用户消息马上离开 input
+    setSteer("");
+    // 1 对 1：该请求要等专家即时作答（LLM 较慢），先乐观显示自己的提问，避免“发了没反应”
+    if (isOne) {
+      const optimistic: Msg = {
+        id: `tmp-${Date.now()}`,
+        sender: "我",
+        role: "user",
+        turn: 0,
+        content: question,
+        createdAt: new Date().toISOString(),
+      };
+      setCurrent((prev) => (prev ? { ...prev, messages: [...prev.messages, optimistic] } : prev));
+    }
     setSending(true);
     setError(null);
     try {
       const res = await fetch(`/api/v1/discussions/${current.id}/steer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: steer }),
+        body: JSON.stringify({ message: question }),
       });
       const d = await res.json();
       if (d.code === 0) {
-        setSteer("");
         void load(current.id);
       } else setError(d.message ?? (isOne ? "发送失败" : "插话失败"));
     } finally {
