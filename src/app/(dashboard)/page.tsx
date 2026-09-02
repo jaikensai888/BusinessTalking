@@ -285,8 +285,8 @@ export default function WorkspacePage() {
 
   return (
     <div className="min-h-full">
-      {/* hero：浅色统一（页面底色即画布，无深色卡片） */}
-      <section className="mx-auto max-w-[1400px] px-6 pt-14 pb-2">
+      {/* hero：浅色统一（页面底色即画布，无深色卡片）。relative z-30 让输入下拉浮于下方“会话空间”卡片之上 */}
+      <section className="relative z-30 mx-auto max-w-[1400px] px-6 pt-14 pb-2">
         <div className="fl-rise mx-auto flex max-w-2xl flex-col items-center gap-6">
           <div className="text-center">
             <p className="text-[13px] font-medium tracking-[0.02em] text-primary/80">BusinessTalking</p>
@@ -382,7 +382,7 @@ export default function WorkspacePage() {
 
             {/* @ 配方 联想（输入时） */}
             {mentionOpen && !recipeDropdown && (
-              <div className="absolute left-0 right-0 top-full z-20 mt-2 overflow-hidden rounded-xl border border-hairline bg-white text-ink shadow-[0_12px_40px_rgba(0,0,0,0.18)]">
+              <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-hairline bg-white text-ink shadow-[0_12px_40px_rgba(0,0,0,0.18)]">
                 <div className="max-h-60 overflow-auto py-1">
                   {filteredRecipes.length === 0 && filteredPersonas.length === 0 ? (
                     <div className="px-4 py-3 text-[13px] text-ink-48">没有匹配的配方或人格</div>
@@ -420,7 +420,7 @@ export default function WorkspacePage() {
 
             {/* 选配方 下拉（chips 触发） */}
             {recipeDropdown && (
-              <div className="absolute left-0 right-0 top-full z-20 mt-2 overflow-hidden rounded-xl border border-hairline bg-white text-ink shadow-[0_12px_40px_rgba(0,0,0,0.18)]">
+              <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-hairline bg-white text-ink shadow-[0_12px_40px_rgba(0,0,0,0.18)]">
                 <div className="max-h-60 overflow-auto py-1">
                   {recipes.length === 0 ? (
                     <div className="px-4 py-3 text-[13px] text-ink-48">还没有配方，请先新建配方</div>
@@ -442,7 +442,7 @@ export default function WorkspacePage() {
 
             {/* 人格视角 下拉（chips 触发） */}
             {personaDropdown && (
-              <div className="absolute left-0 right-0 top-full z-20 mt-2 overflow-hidden rounded-xl border border-hairline bg-white text-ink shadow-[0_12px_40px_rgba(0,0,0,0.18)]">
+              <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-hairline bg-white text-ink shadow-[0_12px_40px_rgba(0,0,0,0.18)]">
                 <div className="max-h-60 overflow-auto py-1.5">
                   {personas.length === 0 ? (
                     <div className="px-4 py-3 text-[13px] text-ink-48">还没有人格，请先新增</div>
