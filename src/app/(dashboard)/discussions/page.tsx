@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import { ChatCircleDots, FilePdf, FileText, PaperPlaneTilt, Plus, SpinnerGap, UsersThree, X } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
@@ -31,6 +31,17 @@ const TYPE_LABEL: Record<string, string> = {
   investor: "投资人", entrepreneur: "创业者", economist: "经济学家", analyst: "分析师",
   customer: "客户", competitor: "竞对", custom: "自定义",
 };
+
+/** 消息日期标签（用于按天分隔）：今天 / 昨天 / 9月2日 */
+function dayLabel(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const s = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((s(now) - s(d)) / 86400000);
+  if (diff === 0) return "今天";
+  if (diff === 1) return "昨天";
+  return `${d.getMonth() + 1}月${d.getDate()}日`;
+}
 
 /** 多人讨论室（微信群聊式）：参与者列表 + 微信气泡流；可插话、综合建议 */
 export default function DiscussionsPage() {
@@ -267,7 +278,7 @@ export default function DiscussionsPage() {
           <ChatCircleDots size={22} weight="duotone" />
         </div>
         <div>
-          <h1 className="text-[26px] font-semibold leading-[1.2] tracking-[-0.4px]">讨论</h1>
+          <h1 className="font-serif text-[27px] font-semibold leading-[1.2] tracking-[-0.2px]">讨论</h1>
           <p className="text-[13px] text-ink-48">单人：你问我答的一对一交流；多人：多位专家互相交锋，给你建议</p>
         </div>
       </div>
@@ -401,7 +412,7 @@ export default function DiscussionsPage() {
                 >
                   {isOne ? "1 对 1" : "多人"}
                 </span>
-                <div className="truncate text-[15px] font-semibold tracking-[-0.2px] text-ink">
+                <div className="truncate font-serif text-[16px] font-semibold tracking-[-0.2px] text-ink">
                   {isOne ? `${current.personas?.[0]?.name ?? "专家"}` : `讨论：${current.brief.slice(0, 30)}…`}
                 </div>
               </div>
@@ -434,7 +445,7 @@ export default function DiscussionsPage() {
             <div className="flex min-w-0 flex-1 flex-col">
               <div
                 ref={scrollRef}
-                className="flex-1 space-y-5 overflow-y-auto bg-[linear-gradient(180deg,rgba(0,0,0,0.015),transparent_140px)] bg-parchment/40 p-6"
+                className="flex-1 space-y-6 overflow-y-auto bg-[radial-gradient(120%_60%_at_50%_-20%,rgba(0,0,0,0.03),transparent_70%)] bg-[#f6f1ea] px-6 py-8"
               >
                 {current.messages.length === 0 ? (
                   <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
@@ -446,7 +457,7 @@ export default function DiscussionsPage() {
                     </p>
                   </div>
                 ) : (
-                  current.messages.map((m) => {
+                  current.messages.map((m, idx) => {
                     if (m.role === "summary") {
                       return (
                         <div key={m.id} className="mx-auto max-w-[85%] rounded-2xl border border-success/20 bg-success/10 px-4 py-3 text-[13px] text-ink-80">
@@ -459,28 +470,41 @@ export default function DiscussionsPage() {
                     }
                     const isUser = m.role === "user";
                     const time = new Date(m.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+                    const prev = current.messages[idx - 1];
+                    const newDay = !prev || dayLabel(prev.createdAt) !== dayLabel(m.createdAt);
                     return (
-                      <div key={m.id} className={cn("flex items-start gap-2.5", isUser && "flex-row-reverse")}>
-                        <Avatar name={isUser ? "我" : m.sender} size="sm" />
-                        <div className={cn("max-w-[76%]", isUser && "text-right")}>
-                          <div className={cn("mb-1 flex items-baseline gap-1.5 text-[11px] text-ink-40", isUser && "justify-end")}>
-                            <span className="font-medium">{isUser ? "我" : m.sender}</span>
-                            <span className="text-ink-40/70">{time}</span>
+                      <Fragment key={m.id}>
+                        {newDay && (
+                          <div className="flex items-center gap-3 py-2">
+                            <div className="h-px flex-1 bg-hairline/70" />
+                            <span className="text-[11px] font-medium tracking-wide text-ink-40">
+                              {dayLabel(m.createdAt)} {time}
+                            </span>
+                            <div className="h-px flex-1 bg-hairline/70" />
                           </div>
-                          <div
-                            className={cn(
-                              "inline-block rounded-2xl px-4 py-2.5 text-left text-[14px]",
-                              isUser
-                                ? "bg-primary text-white rounded-tr-sm shadow-[0_6px_18px_rgba(0,102,204,0.22)]"
-                                : "bg-white text-ink rounded-tl-sm shadow-[0_2px_10px_rgba(0,0,0,0.06)] ring-1 ring-black/5"
-                            )}
-                          >
-                            <Markdown names={personaNames} tone={isUser ? "dark" : "light"}>
-                              {m.content}
-                            </Markdown>
+                        )}
+                        <div className={cn("flex items-start gap-3", isUser && "flex-row-reverse")}>
+                          <Avatar name={isUser ? "我" : m.sender} size="sm" className="mt-1" />
+                          <div className={cn("max-w-[76%]", isUser && "text-right")}>
+                            <div className={cn("mb-1 flex items-baseline gap-1.5 text-[11px] text-ink-40", isUser && "justify-end")}>
+                              <span className="font-medium">{isUser ? "我" : m.sender}</span>
+                              <span className="text-ink-40/60">{time}</span>
+                            </div>
+                            <div
+                              className={cn(
+                                "inline-block rounded-2xl px-4 py-2.5 text-left text-[14px]",
+                                isUser
+                                  ? "bg-primary text-white rounded-2xl rounded-tr-md shadow-[0_6px_18px_rgba(0,102,204,0.22)]"
+                                  : "bg-white text-ink rounded-2xl rounded-tl-md shadow-[0_2px_14px_rgba(60,50,40,0.08)] ring-1 ring-black/[0.04]"
+                              )}
+                            >
+                              <Markdown names={personaNames} tone={isUser ? "dark" : "light"}>
+                                {m.content}
+                              </Markdown>
+                            </div>
                           </div>
                         </div>
-                      </div>
+                      </Fragment>
                     );
                   })
                 )}
