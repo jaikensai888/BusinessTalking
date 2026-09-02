@@ -1,4 +1,5 @@
-import { generateText } from "ai";
+import { generateText, isStepCount, tool } from "ai";
+import { z } from "zod";
 import fs from "node:fs";
 import path from "node:path";
 import { prisma } from "@/lib/db";
@@ -6,6 +7,17 @@ import { buildModel } from "@/lib/llm/providers";
 import { normalizeProvider } from "@/lib/llm/constants";
 import { decrypt } from "@/lib/settings/encryption";
 import { getSetting } from "@/lib/settings/store";
+import { searchWeb } from "@/lib/search/web";
+
+/** 联网检索工具（keyless）：供人设查证竞品/参数/市场事实 */
+const webSearchTool = tool({
+  description:
+    "联网搜索最新的产品、竞品、参数、市场数据。当你需要具体事实、竞品名称、公司/产品规格时调用；用中文或英文都能搜。",
+  parameters: z.object({
+    query: z.string().describe("要搜索的查询词，尽量具体，例如：‘Loona AI桌宠 功能 价格’"),
+  }),
+  execute: async ({ query }) => await searchWeb(query),
+});
 
 const SUMMARY_LIMIT = 1800;
 
@@ -104,7 +116,8 @@ export async function runDiscussion(id: string) {
           `\n\n【当前共识/要点】\n${summaryBox}` +
           (general ? `\n\n【用户此刻插话】\n${general}` : "") +
           (direct ? `\n\n【用户直接点名你，请先正面回应这个问题】\n${direct}` : "") +
-          `\n\n你现在是「${persona.name}」，轮到你发言。请用你的立场与风格，针对方案和其他人观点给出观点；简洁、有观点、不要重复别人。用第一人称。`;
+          `\n\n你现在是「${persona.name}」，轮到你发言。请用你的立场与风格，针对方案和其他人观点给出观点；简洁、有观点、不要重复别人。用第一人称。` +
+          `\n\n你有联网检索工具 web_search：凡需要具体事实、竞品名、规格、市场数据、算账依据时，先搜索查证（可多次搜索）再作答；不要凭空编造竞品或数字。`;
 
         const history = buffers.get(persona.id) ?? [];
         let content: string;
@@ -117,6 +130,8 @@ export async function runDiscussion(id: string) {
               ...history.slice(-4).map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
               { role: "user" as const, content: history.length === 0 ? "开始讨论。" : "继续。" },
             ],
+            tools: { web_search: webSearchTool },
+            stopWhen: isStepCount(6),
             abortSignal: AbortSignal.timeout(Math.min(Number(timeoutRaw ?? 120) * 1000, 120000)),
           });
           content = text.trim() || "（无回应）";

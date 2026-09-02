@@ -1,10 +1,22 @@
-import { generateText } from "ai";
+import { generateText, isStepCount, tool } from "ai";
+import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { buildModel } from "@/lib/llm/providers";
 import { normalizeProvider } from "@/lib/llm/constants";
 import { decrypt } from "@/lib/settings/encryption";
 import { getSetting } from "@/lib/settings/store";
 import { loadSkill } from "./runner";
+import { searchWeb } from "@/lib/search/web";
+
+/** 联网检索工具（keyless）：供人设查证竞品/参数/市场事实 */
+const webSearchTool = tool({
+  description:
+    "联网搜索最新的产品、竞品、参数、市场数据。当你需要具体事实、竞品名称、公司/产品规格时调用；用中文或英文都能搜。",
+  parameters: z.object({
+    query: z.string().describe("要搜索的查询词，尽量具体，例如：‘Loona AI桌宠 功能 价格’"),
+  }),
+  execute: async ({ query }) => await searchWeb(query),
+});
 
 /**
  * 单人（1 对 1）讨论的即时作答：
@@ -49,7 +61,8 @@ export async function replyOneOnOne(
   const sys =
     loadSkill(persona.skillPath, persona.systemPrompt) +
     `\n\n【讨论背景】\n${d.brief}` +
-    `\n\n你现在是「${persona.name}」。请以你的立场与风格，直接回答用户刚刚提出的问题。用第一人称，简洁、有观点、不绕弯。`;
+    `\n\n你现在是「${persona.name}」。请以你的立场与风格，直接回答用户刚刚提出的问题。用第一人称，简洁、有观点、不绕弯。` +
+    `\n\n你有联网检索工具 web_search：凡需要具体事实、竞品名、规格、市场数据、算账依据时，先搜索查证（可多次搜索）再作答；不要凭空编造竞品或数字。`;
 
   try {
     const modelObj = buildModel(provider, apiKey, model, baseUrl || undefined);
@@ -57,6 +70,8 @@ export async function replyOneOnOne(
       model: modelObj,
       system: sys,
       messages: [...history, { role: "user" as const, content: question }],
+      tools: { web_search: webSearchTool },
+      stopWhen: isStepCount(6),
       abortSignal: AbortSignal.timeout(Math.min(Number(timeoutRaw ?? 120) * 1000, 120000)),
     });
     return text.trim() || "（无回应）";
