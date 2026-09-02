@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type Rea
 import { useSearchParams } from "next/navigation";
 import { ChatCircleDots, FilePdf, FileText, PaperPlaneTilt, Plus, SpinnerGap, UsersThree, X } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
+import { avatarColor, tint } from "@/lib/color";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -466,20 +467,28 @@ export default function DiscussionsPage() {
                       );
                     }
                     const isUser = m.role === "user";
+                    const color = isUser ? "#0066cc" : avatarColor(m.sender);
+                    const time = new Date(m.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
                     return (
                       <div key={m.id} className={cn("flex gap-2.5", isUser && "flex-row-reverse")}>
-                        <Avatar name={isUser ? "我" : m.sender} size="sm" className="shrink-0" />
+                        <Avatar name={isUser ? "我" : m.sender} size="sm" />
                         <div className={cn("max-w-[76%]", isUser && "text-right")}>
-                          <div className={cn("mb-1 text-[11px] text-ink-40", isUser && "text-right")}>{isUser ? "我" : m.sender}</div>
+                          <div className={cn("mb-1 flex items-baseline gap-1.5 text-[11px]", isUser && "justify-end")}>
+                            <span className={isUser ? "text-ink-40" : undefined} style={isUser ? undefined : { color, fontWeight: 600 }}>
+                              {isUser ? "我" : m.sender}
+                            </span>
+                            <span className="text-ink-40/70">{time}</span>
+                          </div>
                           <div
                             className={cn(
-                              "inline-block rounded-xl px-3.5 py-2 text-left text-[14px] leading-[1.6] whitespace-pre-wrap",
+                              "inline-block rounded-2xl px-3.5 py-2 text-left text-[14px] leading-[1.6] whitespace-pre-wrap",
                               isUser
-                                ? "bg-primary text-white rounded-tr-sm"
-                                : "bg-white text-ink rounded-tl-sm shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
+                                ? "bg-primary text-white rounded-tr-sm shadow-[0_4px_12px_rgba(0,102,204,0.18)]"
+                                : "rounded-tl-sm text-ink shadow-[0_2px_8px_rgba(0,0,0,0.05)]"
                             )}
+                            style={isUser ? undefined : { backgroundColor: tint(color, 0.1), borderLeft: `2.5px solid ${color}` }}
                           >
-                            {renderContent(m.content, personaNames, isUser ? "font-semibold underline decoration-2 underline-offset-2" : undefined)}
+                            {renderContent(m.content, personaNames, isUser ? "font-semibold underline decoration-2 underline-offset-2" : "font-semibold text-primary")}
                           </div>
                         </div>
                       </div>

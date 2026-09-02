@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { avatarColor } from "@/lib/color";
 
 const SIZES = {
   sm: "h-6 w-6 text-[11px]",
@@ -6,9 +7,6 @@ const SIZES = {
   lg: "h-14 w-14 text-[20px]",
   xl: "h-20 w-20 text-[28px]",
 } as const;
-
-/** 平铺纯色 app 图标色（类 Chrome Web Store 扩展图标，与工作区卡片一致） */
-const PALETTE = ["#2f6fed", "#4f46e5", "#0ea5a6", "#b98a2f", "#e0567a", "#5b6b8c", "#7c5cd6", "#2e7d64"];
 
 /** DESIGN.md 7.6 头像（精修）：正圆 + 白色描边 + 平铺纯色；无图时按名称生成 */
 export function Avatar({
@@ -23,8 +21,7 @@ export function Avatar({
   className?: string;
 }) {
   const initial = name.trim().charAt(0) || "?";
-  const hue = [...name].reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
-  const color = PALETTE[hue % PALETTE.length];
+  const color = avatarColor(name);
 
   if (src) {
     // eslint-disable-next-line @next/next/no-img-element
