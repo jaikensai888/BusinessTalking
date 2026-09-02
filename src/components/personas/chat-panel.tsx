@@ -1,16 +1,16 @@
 "use client";
 
 import { useState } from "react";
+import { ArrowUp, ChatCircleDots, DownloadSimple, Plus, SpinnerGap } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import { Avatar } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 
 interface Message {
   role: "user" | "assistant";
   content: string;
   createdAt?: string;
 }
-
 interface Conversation {
   id: string;
   title: string | null;
@@ -18,7 +18,7 @@ interface Conversation {
   updatedAt: string;
 }
 
-/** UX 3.4 / 4.5 对话组件：气泡、会话列表、新建会话、导出笔记 */
+/** 人格交流 Tab（优化版）：会话列表 + 对话流 + 输入一体化 */
 export function ChatPanel({ personaId, personaName }: { personaId: string; personaName: string }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -65,10 +65,7 @@ export function ChatPanel({ personaId, personaName }: { personaId: string; perso
         return;
       }
       setActiveId(d.data.conversationId);
-      setMessages((prev) => [
-        ...(activeId === d.data.conversationId ? prev : []),
-        ...d.data.messages,
-      ]);
+      setMessages((prev) => [...(activeId === d.data.conversationId ? prev : []), ...d.data.messages]);
       setInput("");
       loadConversations();
     } catch {
@@ -102,78 +99,122 @@ export function ChatPanel({ personaId, personaName }: { personaId: string; perso
   };
 
   return (
-    <div className="flex gap-4 h-[560px]">
+    <div className="flex h-[600px] gap-4">
       {/* 会话列表 */}
-      <aside className="w-52 shrink-0 bg-pearl border border-hairline rounded-lg p-3 flex flex-col gap-2" onMouseEnter={ensureLoaded}>
-        <Button variant="pearl" onClick={newConversation} className="w-full">
-          + 新建会话
-        </Button>
-        <div className="flex-1 overflow-auto space-y-1">
-          {conversations.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => openConversation(c.id)}
-              className={cn(
-                "w-full text-left rounded-[8px] px-3 py-2 text-[13px] leading-[1.4]",
-                activeId === c.id ? "bg-primary text-white" : "hover:bg-parchment text-ink"
-              )}
-            >
-              <div className="truncate">{c.title || "未命名会话"}</div>
-              <div className={cn("text-[11px]", activeId === c.id ? "text-white/70" : "text-ink-48")}>
-                {c.messageCount} 条消息
-              </div>
-            </button>
-          ))}
+      <aside
+        className="w-52 shrink-0 overflow-hidden rounded-2xl border border-hairline bg-white"
+        onMouseEnter={ensureLoaded}
+      >
+        <div className="flex items-center justify-between border-b border-divider-soft px-4 py-3">
+          <span className="text-[12px] font-semibold uppercase tracking-wide text-ink-40">会话</span>
+          <button
+            onClick={newConversation}
+            title="新建会话"
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-ink-60 transition-colors hover:bg-parchment hover:text-ink"
+          >
+            <Plus size={16} weight="bold" />
+          </button>
         </div>
-        <Button variant="dark" onClick={exportNote} disabled={messages.length === 0}>
-          导出笔记
-        </Button>
-      </aside>
-
-      {/* 对话区 */}
-      <div className="flex-1 bg-white border border-hairline rounded-lg flex flex-col min-w-0">
-        <div className="flex-1 overflow-auto p-6 space-y-4" onMouseEnter={ensureLoaded}>
-          {messages.length === 0 ? (
-            <div className="h-full flex items-center justify-center text-ink-48 text-[14px]">
-              与「{personaName}」聊聊你的想法吧
-            </div>
+        <div className="h-[calc(100%-45px)] space-y-1 overflow-auto p-2">
+          {conversations.length === 0 ? (
+            <p className="px-3 py-4 text-[12px] text-ink-40">还没有会话</p>
           ) : (
-            messages.map((m, i) => (
-              <div key={i} className={cn("flex gap-3", m.role === "user" && "flex-row-reverse")}>
-                <Avatar name={m.role === "user" ? "我" : personaName} size="sm" />
-                <div
-                  className={cn(
-                    "max-w-[70%] rounded-lg px-4 py-3 text-[15px] leading-[1.5] whitespace-pre-wrap",
-                    m.role === "user"
-                      ? "bg-primary text-white rounded-tr-none"
-                      : "bg-parchment text-ink rounded-tl-none"
-                  )}
-                >
-                  {m.content}
-                </div>
-              </div>
+            conversations.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => openConversation(c.id)}
+                className={cn(
+                  "w-full rounded-lg px-3 py-2 text-left transition-colors",
+                  activeId === c.id ? "bg-primary/10 text-primary" : "hover:bg-parchment"
+                )}
+              >
+                <div className="truncate text-[13px] text-ink">{c.title || "未命名会话"}</div>
+                <div className="text-[11px] text-ink-40">{c.messageCount} 条消息</div>
+              </button>
             ))
           )}
         </div>
+        <div className="border-t border-divider-soft p-2">
+          <button
+            onClick={exportNote}
+            disabled={messages.length === 0}
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-[13px] text-ink-60 transition-colors hover:bg-parchment disabled:opacity-40"
+          >
+            <DownloadSimple size={15} /> 导出笔记
+          </button>
+        </div>
+      </aside>
 
-        {error && <div className="px-6 pb-2 text-[13px] text-error">{error}</div>}
+      {/* 对话区 */}
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-hairline bg-white">
+        <div className="flex items-center gap-3 border-b border-divider-soft px-5 py-3">
+          <Avatar name={personaName} size="sm" />
+          <div>
+            <div className="text-[14px] font-semibold text-ink">{personaName}</div>
+            <div className="text-[11px] text-ink-40">与你一对一交流</div>
+          </div>
+        </div>
 
-        <div className="border-t border-hairline p-4 flex gap-2">
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                send();
-              }
-            }}
-            placeholder={`向「${personaName}」提问…`}
-            className="flex-1 bg-white border border-hairline rounded-full h-11 px-5 text-[15px] outline-none focus:border-primary"
-          />
-          <Button onClick={send} disabled={sending || !input.trim()}>
-            {sending ? "思考中…" : "发送"}
-          </Button>
+        <div className="flex-1 space-y-4 overflow-auto p-6" onMouseEnter={ensureLoaded}>
+          {messages.length === 0 ? (
+            <EmptyState
+              icon={ChatCircleDots}
+              title={`与「${personaName}」聊聊吧`}
+              description="用一个问题开始，或让它用它的视角质询你的商业想法。"
+            />
+          ) : (
+            messages.map((m, i) => {
+              const isUser = m.role === "user";
+              return (
+                <div key={i} className={cn("flex gap-2.5", isUser && "flex-row-reverse")}>
+                  <Avatar name={isUser ? "我" : personaName} size="sm" className="mt-0.5" />
+                  <div className="max-w-[78%]">
+                    <div className={cn("mb-1 text-[11px] text-ink-40", isUser && "text-right")}>
+                      {isUser ? "我" : personaName}
+                    </div>
+                    <div
+                      className={cn(
+                        "rounded-2xl px-4 py-2.5 text-[14px] leading-[1.65] whitespace-pre-wrap",
+                        isUser
+                          ? "bg-primary text-white rounded-tr-sm shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]"
+                          : "bg-parchment text-ink rounded-tl-sm"
+                      )}
+                    >
+                      {m.content}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {error && <div className="px-6 pb-1 text-[12px] text-error">{error}</div>}
+
+        <div className="border-t border-divider-soft p-3">
+          <div className="flex items-end gap-2 rounded-2xl border border-hairline bg-white p-2 transition-colors focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10">
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey && !sending) {
+                  e.preventDefault();
+                  send();
+                }
+              }}
+              rows={1}
+              placeholder={`向「${personaName}」提问…（Enter 发送，Shift+Enter 换行）`}
+              className="max-h-32 flex-1 resize-none bg-transparent px-2 py-1.5 text-[14px] text-ink outline-none placeholder:text-ink-40"
+            />
+            <button
+              onClick={send}
+              disabled={sending || !input.trim()}
+              aria-label="发送"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-white transition-all hover:bg-[#0077e6] active:scale-95 disabled:opacity-40"
+            >
+              {sending ? <SpinnerGap size={17} className="animate-spin" /> : <ArrowUp size={17} weight="bold" />}
+            </button>
+          </div>
         </div>
       </div>
     </div>

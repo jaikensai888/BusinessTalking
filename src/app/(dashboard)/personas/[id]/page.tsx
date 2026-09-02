@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { CaretDown, FileText, Files, SpinnerGap } from "@phosphor-icons/react";
+import { FileText, Files, FloppyDisk, SpinnerGap } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -14,13 +14,12 @@ interface PersonaDetail {
   description: string | null;
   systemPrompt: string;
   perspectiveType: string;
-  avatarType: string;
-  avatarValue: string | null;
   isBuiltin: boolean;
 }
-interface SkillInfo {
-  skillMd: string | null;
-  refs: { name: string; rel: string }[];
+interface TocItem {
+  key: string; // 'skill' 或 相对路径
+  label: string;
+  icon: React.ElementType;
 }
 
 const TYPE_LABEL: Record<string, string> = {
@@ -33,17 +32,42 @@ const TYPE_LABEL: Record<string, string> = {
   custom: "自定义",
 };
 
-/** 人格详情页：头部 + 详情(SKILL.md + 参考资料) / 交流 双 Tab */
+/** 人格详情页：左内容编辑器 + 右目录（可查看/修改 skill 与参考文档），交流 Tab */
 export default function PersonaDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const [persona, setPersona] = useState<PersonaDetail | null>(null);
   const [tab, setTab] = useState<"详情" | "交流">("详情");
   const [error, setError] = useState<string | null>(null);
-  const [skill, setSkill] = useState<SkillInfo | null>(null);
-  const [openRef, setOpenRef] = useState<string | null>(null);
-  const [refContent, setRefContent] = useState<string | null>(null);
-  const [loadingRef, setLoadingRef] = useState<string | null>(null);
+  const [toc, setToc] = useState<TocItem[]>([]);
+  const [active, setActive] = useState<string>("skill");
+  const [content, setContent] = useState("");
+  const [dirty, setDirty] = useState(false);
+  const [loadingDoc, setLoadingDoc] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [savedTick, setSavedTick] = useState(0);
+  const editorRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const loadDoc = async (key: string) => {
+    setActive(key);
+    setLoadingDoc(true);
+    setDirty(false);
+    try {
+      if (key === "skill") {
+        const res = await fetch(`/api/v1/personas/${id}/skill`);
+        const d = await res.json();
+        setContent(d.code === 0 ? (d.data.skillMd ?? persona?.systemPrompt ?? "") : (d.message ?? "加载失败"));
+      } else {
+        const res = await fetch(`/api/v1/personas/${id}/skill/content?p=${encodeURIComponent(key)}`);
+        const d = await res.json();
+        setContent(d.code === 0 ? d.data.content : (d.message ?? "加载失败"));
+      }
+    } catch {
+      setContent("加载失败");
+    } finally {
+      setLoadingDoc(false);
+    }
+  };
 
   useEffect(() => {
     fetch(`/api/v1/personas/${id}`)
@@ -57,32 +81,53 @@ export default function PersonaDetailPage() {
     fetch(`/api/v1/personas/${id}/skill`)
       .then((r) => r.json())
       .then((d) => {
-        if (d.code === 0) setSkill({ skillMd: d.data.skillMd, refs: d.data.refs ?? [] });
+        if (d.code === 0) {
+          const items: TocItem[] = [
+            { key: "skill", label: "SKILL.md", icon: FileText },
+            ...(d.data.refs ?? []).map((r: { rel: string }) => ({ key: r.rel, label: r.rel, icon: Files })),
+          ];
+          setToc(items);
+          void loadDoc("skill");
+        } else {
+          setToc([{ key: "skill", label: "SKILL.md", icon: FileText }]);
+          void loadDoc("skill");
+        }
       })
-      .catch(() => undefined);
-  }, [id]);
+      .catch(() => {
+        setToc([{ key: "skill", label: "SKILL.md", icon: FileText }]);
+        void loadDoc("skill");
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, savedTick]);
 
-  const toggleRef = async (rel: string) => {
-    if (openRef === rel) {
-      setOpenRef(null);
-      setRefContent(null);
-      return;
-    }
-    setOpenRef(rel);
-    setLoadingRef(rel);
-    setRefContent(null);
+  const saveDoc = async () => {
+    if (!dirty) return;
+    setSaving(true);
+    setError(null);
     try {
-      const res = await fetch(`/api/v1/personas/${id}/skill/content?p=${encodeURIComponent(rel)}`);
+      const res = await fetch(`/api/v1/personas/${id}/skill/save`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target: active === "skill" ? "skill" : active, content }),
+      });
       const d = await res.json();
-      setRefContent(d.code === 0 ? d.data.content : (d.message ?? "加载失败"));
+      if (d.code === 0) {
+        setDirty(false);
+        setSavedTick((t) => t + 1);
+      } else {
+        setError(d.message ?? "保存失败");
+      }
     } catch {
-      setRefContent("加载失败");
+      setError("保存失败");
     } finally {
-      setLoadingRef(null);
+      setSaving(false);
     }
   };
 
-  if (error) {
+  const activeLabel = active === "skill" ? "SKILL.md" : active;
+  const isSkill = active === "skill";
+
+  if (error && !persona) {
     return (
       <div className="px-6 py-10 text-[14px] text-error">
         {error}
@@ -98,7 +143,7 @@ export default function PersonaDetailPage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-10">
+    <div className="mx-auto max-w-6xl px-6 py-10">
       {/* 头部 */}
       <div className="mb-6 flex items-center gap-4">
         <Avatar name={persona.name} size="xl" />
@@ -131,61 +176,63 @@ export default function PersonaDetailPage() {
       </div>
 
       {tab === "详情" ? (
-        <div className="space-y-5">
-          {/* 人物 Skill · SKILL.md */}
-          <div className="rounded-2xl border border-hairline bg-white">
-            <div className="flex items-center gap-2 border-b border-divider-soft px-6 py-3.5">
-              <FileText size={16} className="text-primary" />
-              <h2 className="text-[15px] font-semibold">人物 Skill（SKILL.md）</h2>
-              <span className="ml-auto text-[11px] text-ink-40">{skill?.skillMd ? `${(skill.skillMd.length / 1000).toFixed(1)}k 字符` : "—"}</span>
+        <div className="grid h-[600px] grid-cols-[240px_1fr] gap-4">
+          {/* 右侧目录 */}
+          <aside className="overflow-hidden rounded-2xl border border-hairline bg-white">
+            <div className="border-b border-divider-soft px-4 py-3 text-[12px] font-semibold uppercase tracking-wide text-ink-40">
+              目录 · skill 结构
             </div>
-            <pre className="max-h-[46vh] overflow-auto whitespace-pre-wrap break-words p-6 text-[13px] leading-[1.7] font-mono text-ink-80">
-              {skill?.skillMd ?? persona.systemPrompt}
-            </pre>
-          </div>
-
-          {/* 参考资料 */}
-          <div className="rounded-2xl border border-hairline bg-white">
-            <div className="flex items-center gap-2 border-b border-divider-soft px-6 py-3.5">
-              <Files size={16} className="text-primary" />
-              <h2 className="text-[15px] font-semibold">参考资料（references）</h2>
-              <span className="ml-auto text-[11px] text-ink-40">{skill?.refs?.length ?? 0} 篇</span>
-            </div>
-            <div>
-              {!skill || skill.refs.length === 0 ? (
-                <p className="px-6 py-6 text-[13px] text-ink-48">该人物暂未附参考调研文档。</p>
-              ) : (
-                skill.refs.map((r) => (
-                  <div key={r.rel} className="border-b border-divider-soft last:border-0">
-                    <button
-                      onClick={() => toggleRef(r.rel)}
-                      className="flex w-full items-center gap-2 px-6 py-3 text-left text-[14px] hover:bg-parchment"
-                    >
-                      <CaretDown size={13} className={cn("text-ink-40 transition-transform", openRef === r.rel && "rotate-180")} />
-                      <span className="font-medium">{r.rel}</span>
-                    </button>
-                    {openRef === r.rel && (
-                      <div className="px-6 pb-4">
-                        {loadingRef === r.rel ? (
-                          <div className="flex items-center gap-2 py-4 text-[13px] text-ink-40">
-                            <SpinnerGap size={15} className="animate-spin" /> 加载中…
-                          </div>
-                        ) : (
-                          <pre className="max-h-[46vh] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-parchment p-4 text-[12px] leading-[1.7] font-mono text-ink">
-                            {refContent}
-                          </pre>
-                        )}
-                      </div>
+            <nav className="h-[calc(100%-45px)] overflow-auto p-2">
+              {toc.map((item) => {
+                const on = active === item.key;
+                const IconComponent = item.icon;
+                return (
+                  <button
+                    key={item.key}
+                    onClick={() => void loadDoc(item.key)}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] transition-colors",
+                      on ? "bg-primary/10 font-medium text-primary" : "text-ink-60 hover:bg-parchment"
                     )}
-                  </div>
-                ))
-              )}
+                    title={item.label}
+                  >
+                    <IconComponent size={14} className="shrink-0 text-ink-40" />
+                    <span className="truncate">{item.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+          </aside>
+
+          {/* 左侧编辑器 */}
+          <div className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-hairline bg-white">
+            <div className="flex items-center gap-2 border-b border-divider-soft px-4 py-3">
+              <FileText size={15} className="text-primary" />
+              <span className="truncate text-[14px] font-semibold">{activeLabel}</span>
+              <span className={cn("ml-auto text-[11px]", dirty ? "text-warning" : "text-ink-40")}>
+                {dirty ? "已修改" : "只读浏览"}
+              </span>
+              <Button size="sm" variant="dark" onClick={saveDoc} disabled={saving || !dirty}>
+                {saving ? <SpinnerGap size={13} className="animate-spin" /> : <FloppyDisk size={13} />} 保存
+              </Button>
             </div>
+            <textarea
+              ref={editorRef}
+              value={content}
+              onChange={(e) => {
+                setContent(e.target.value);
+                setDirty(true);
+              }}
+              spellCheck={false}
+              className="h-full min-h-0 w-full flex-1 resize-none p-4 text-[13px] leading-[1.7] font-mono text-ink outline-none focus:bg-pearl/40 focus:ring-4 focus:ring-primary/10"
+            />
           </div>
         </div>
       ) : (
         <ChatPanel personaId={persona.id} personaName={persona.name} />
       )}
+
+      {error && persona && <p className="mt-3 text-[13px] text-error">{error}</p>}
     </div>
   );
 }
