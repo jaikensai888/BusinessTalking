@@ -22,6 +22,7 @@ export function LLMSettingsForm() {
   const [provider, setProvider] = useState<"openai" | "anthropic">("openai");
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [masked, setMasked] = useState<string | null>(null);
   const [modelsText, setModelsText] = useState("");
   const [defaultModel, setDefaultModel] = useState("");
   const [timeoutSeconds, setTimeoutSeconds] = useState(120);
@@ -48,6 +49,8 @@ export function LLMSettingsForm() {
           setDefaultModel(llm.defaultModel ?? "");
           setTimeoutSeconds(llm.timeoutSeconds);
           setApiKeyConfigured(llm.apiKeyConfigured);
+          setMasked(llm.apiKeyMasked);
+          setApiKey(llm.apiKeyMasked ?? "");
         }
       })
       .catch(() => setStatus({ kind: "error", text: "加载配置失败" }));
@@ -77,7 +80,7 @@ export function LLMSettingsForm() {
         body: JSON.stringify({
           provider,
           baseUrl,
-          apiKey,
+          apiKey: apiKey && apiKey !== masked ? apiKey : "",
           models: cleaned,
           defaultModel: defaultModel || cleaned[0],
           timeoutSeconds,
@@ -86,7 +89,15 @@ export function LLMSettingsForm() {
       const d = await res.json();
       if (d.code === 0) {
         setApiKeyConfigured(true);
-        setApiKey("");
+        // 重新获取掩码，输入框显示密文而非清空
+        const g = await fetch("/api/v1/settings");
+        const gd = await g.json();
+        if (gd.code === 0) {
+          setMasked(gd.data.llm.apiKeyMasked);
+          setApiKey(gd.data.llm.apiKeyMasked ?? "");
+        } else {
+          setApiKey("");
+        }
         setStatus({ kind: "ok", text: "已保存" });
       } else {
         setStatus({ kind: "error", text: d.message ?? "保存失败" });
@@ -157,8 +168,8 @@ export function LLMSettingsForm() {
         <label className="text-[14px] font-semibold text-ink-80">API Key</label>
         <div className="flex gap-2">
           <Input
-            type="password"
-            placeholder={apiKeyConfigured ? "已配置（留空则不修改）" : "sk-…"}
+            type="text"
+            placeholder={apiKeyConfigured ? "已保存（下方显示密文）" : "sk-…"}
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
           />
@@ -166,8 +177,10 @@ export function LLMSettingsForm() {
             {testing ? "测试中…" : "测试连接"}
           </Button>
         </div>
-        {apiKeyConfigured && !apiKey && (
-          <p className="text-[12px] text-ink-48">已保存过 Key，输入新 Key 可覆盖。</p>
+        {apiKeyConfigured && (
+          <p className="text-[12px] text-ink-48">
+            已保存，当前显示为密文（{apiKey || masked}）；保持不动则不变，输入新 Key 可覆盖。
+          </p>
         )}
       </div>
 

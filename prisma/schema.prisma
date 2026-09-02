@@ -76,6 +76,7 @@ model Persona {
   name            String
   description     String?
   systemPrompt    String
+  skillPath       String?         // 关联的人物 skill（SKILL.md）路径，运行时按需加载完整人设
   perspectiveType PerspectiveType @default(custom)
   avatarType      String          @default("auto") // builtin | auto
   avatarValue     String?
@@ -223,4 +224,35 @@ model Message {
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@index([conversationId])
+}
+
+// ---------- 多人讨论室 ----------
+model Discussion {
+  id         String   @id @default(cuid())
+  brief      String
+  rounds     Int      @default(5)
+  personaIds Json     // 参与人格 id 列表
+  status     String   @default("pending") // pending | running | done | failed
+  summaryBox String?  // 共享纪要（跨人格的浓缩要点）
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  messages DiscussionMessage[]
+
+  @@index([status])
+}
+
+model DiscussionMessage {
+  id           String   @id @default(cuid())
+  discussionId String
+  personaId    String?  // null = 用户插话 / 综合建议
+  sender       String   // 显示名：人格名 / 你 / 综合建议
+  role         String   // persona | user | summary
+  turn         Int
+  content      String
+  createdAt    DateTime @default(now())
+
+  discussion Discussion @relation(fields: [discussionId], references: [id], onDelete: Cascade)
+
+  @@index([discussionId])
 }

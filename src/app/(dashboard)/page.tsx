@@ -13,7 +13,7 @@ import {
   type Icon,
 } from "@phosphor-icons/react";
 import { Avatar } from "@/components/ui/avatar";
-import { RunCards } from "@/components/workspace/run-cards";
+import { SpacesCards } from "@/components/workspace/spaces-cards";
 import { FloatingAction } from "@/components/workspace/floating-action";
 import { cn } from "@/lib/utils";
 
@@ -111,6 +111,14 @@ export default function WorkspacePage() {
   }, [searchParams]);
 
   const filteredRecipes = mentionQuery ? recipes.filter((r) => r.name.includes(mentionQuery)) : recipes;
+  const filteredPersonas = mentionQuery ? personas.filter((p) => p.name.includes(mentionQuery)) : personas;
+
+  const setPersona = (p: PersonaOption) => {
+    setMentionOpen(false);
+    const cleaned = text.replace(/@[^\s@]*/g, "").replace(/\s+/g, " ").trim();
+    setText(`${cleaned} @${p.name} `.trimStart());
+    inputRef.current?.focus();
+  };
 
   const handleBeforeInput = (value: string, caret: number) => {
     const before = value.slice(0, caret);
@@ -205,18 +213,66 @@ export default function WorkspacePage() {
     }
   };
 
+  /** 开启多人讨论（工作台 @ 多个人格） */
+  const startDiscussion = async (personaIds: string[]) => {
+    setRunning(true);
+    setError(null);
+    try {
+      const brief = buildIdeaInput();
+      if (!brief.trim()) {
+        setError("请先输入讨论主题");
+        setRunning(false);
+        return;
+      }
+      const res = await fetch("/api/v1/discussions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brief, personaIds, rounds: 5 }),
+      });
+      const d = await res.json();
+      if (d.code === 0) {
+        setText("");
+        setSelectedRecipeId(null);
+        setAttachment(null);
+        setRefreshKey((k) => k + 1);
+      } else {
+        setError(d.message ?? "创建讨论失败");
+      }
+    } catch {
+      setError("创建讨论失败");
+    } finally {
+      setRunning(false);
+      setPickerOpen(false);
+    }
+  };
+
   const submit = () => {
     const idea = text.replace(/@[^\s@]*/g, "").trim();
+    const tokens = Array.from(text.matchAll(/@([^\s@]+)/g)).map((m) => m[1].trim()).filter(Boolean);
+    const matchedPersonas = personas.filter((p) => tokens.some((t) => p.name.includes(t) || t.includes(p.name)));
+    const matchedRecipe = recipes.find((r) => tokens.some((t) => r.name.includes(t) || t.includes(r.name)));
     if (!idea && !attachment) {
       setError("请先输入你的商业想法或上传资料");
       inputRef.current?.focus();
       return;
     }
+    if (matchedPersonas.length >= 2) {
+      startDiscussion(matchedPersonas.map((p) => p.id));
+      return;
+    }
+    if (matchedRecipe) {
+      startRun(matchedRecipe.id);
+      return;
+    }
+    if (matchedPersonas.length === 1) {
+      setError("讨论需要至少 2 个人格，再 @ 一位吧；或 @ 配方 开始分析");
+      return;
+    }
     if (selectedRecipeId) {
       startRun(selectedRecipeId);
-    } else {
-      setPickerOpen(true);
+      return;
     }
+    setPickerOpen(true);
   };
 
   return (
@@ -319,20 +375,36 @@ export default function WorkspacePage() {
             {/* @ 配方 联想（输入时） */}
             {mentionOpen && !recipeDropdown && (
               <div className="absolute left-0 right-0 top-full z-20 mt-2 overflow-hidden rounded-xl border border-hairline bg-white text-ink shadow-[0_12px_40px_rgba(0,0,0,0.18)]">
-                <div className="max-h-56 overflow-auto py-1">
-                  {filteredRecipes.length === 0 ? (
-                    <div className="px-4 py-3 text-[13px] text-ink-48">没有匹配的配方，请先在「配方」页创建</div>
+                <div className="max-h-60 overflow-auto py-1">
+                  {filteredRecipes.length === 0 && filteredPersonas.length === 0 ? (
+                    <div className="px-4 py-3 text-[13px] text-ink-48">没有匹配的配方或人格</div>
                   ) : (
-                    filteredRecipes.map((r) => (
-                      <button
-                        key={r.id}
-                        onClick={() => setRecipe(r)}
-                        className="flex w-full items-center justify-between px-4 py-2.5 text-left text-[14px] hover:bg-parchment"
-                      >
-                        <span>{r.name}</span>
-                        <span className="text-[12px] text-ink-40">{r.stepCount} 步</span>
-                      </button>
-                    ))
+                    <>
+                      {filteredPersonas.map((p) => (
+                        <button
+                          key={p.id}
+                          onClick={() => setPersona(p)}
+                          className="flex w-full items-center gap-2.5 px-4 py-2 text-left text-[14px] hover:bg-parchment"
+                        >
+                          <Avatar name={p.name} size="sm" />
+                          <span>{p.name}</span>
+                          <span className="ml-auto text-[12px] text-ink-40">人物 · 讨论</span>
+                        </button>
+                      ))}
+                      {filteredRecipes.map((r) => (
+                        <button
+                          key={r.id}
+                          onClick={() => setRecipe(r)}
+                          className="flex w-full items-center justify-between px-4 py-2.5 text-left text-[14px] hover:bg-parchment"
+                        >
+                          <span className="flex items-center gap-2">
+                            <TagSimple size={14} className="text-ink-40" />
+                            {r.name}
+                          </span>
+                          <span className="text-[12px] text-ink-40">{r.stepCount} 步</span>
+                        </button>
+                      ))}
+                    </>
                   )}
                 </div>
               </div>
@@ -395,15 +467,15 @@ export default function WorkspacePage() {
       {/* 分析工作区：竖版卡片流（≥3 列） */}
       <section className="mx-auto max-w-[1440px] px-6 py-10">
         <div className="mb-5 flex items-center justify-between">
-          <h2 className="text-[19px] font-semibold tracking-[-0.2px]">分析工作区</h2>
+          <h2 className="text-[19px] font-semibold tracking-[-0.2px]">会话空间</h2>
           <button
             className="text-[13px] text-primary transition-colors hover:text-[#0077e6] hover:underline"
             onClick={() => setRefreshKey((k) => k + 1)}
           >
-            全部运行 ›
+            全部空间 ›
           </button>
         </div>
-        <RunCards refreshKey={refreshKey} onInvite={submit} />
+        <SpacesCards refreshKey={refreshKey} onNew={submit} />
       </section>
 
       {pickerOpen && (

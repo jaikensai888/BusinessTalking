@@ -1,0 +1,104 @@
+import { generateText } from "ai";
+import fs from "node:fs";
+import path from "node:path";
+import { prisma } from "@/lib/db";
+import { buildModel } from "@/lib/llm/providers";
+import { normalizeProvider } from "@/lib/llm/constants";
+import { decrypt } from "@/lib/settings/encryption";
+import { getSetting } from "@/lib/settings/store";
+
+const SUMMARY_LIMIT = 1800;
+
+/** 读取人物 skill（SKILL.md）作为完整人设；缺失则回退 systemPrompt */
+function loadSkill(skillPath: string | null | undefined, fallback: string): string {
+  if (skillPath) {
+    try {
+      return fs.readFileSync(path.join(process.cwd(), skillPath), "utf8");
+    } catch {
+      /* fall back */
+    }
+  }
+  return fallback;
+}
+
+/**
+ * 多人讨论主循环（异步推进）：
+ * 每人格独立上下文（各自历史）+ 共享纪要（summaryBox，浓缩跨人格要点），避免整段 transcript 传递
+ */
+export async function runDiscussion(id: string) {
+  const d = await prisma.discussion.findUnique({ where: { id } });
+  if (!d) return;
+  const personaIds = (d.personaIds as string[]) ?? [];
+  const personas = await prisma.persona.findMany({ where: { id: { in: personaIds } } });
+  if (personas.length < 2) {
+    await prisma.discussion.update({ where: { id }, data: { status: "failed" } });
+    return;
+  }
+
+  const [providerRaw, baseUrl, keyCipher, modelRaw, timeoutRaw] = await Promise.all([
+    getSetting("llm.provider"),
+    getSetting("llm.baseUrl"),
+    getSetting("llm.apiKey"),
+    getSetting("llm.defaultModel"),
+    getSetting("llm.timeoutSeconds"),
+  ]);
+  const provider = normalizeProvider(providerRaw);
+  const apiKey = keyCipher ? decrypt(keyCipher) : "";
+  const model = modelRaw ?? "";
+  if (!apiKey) {
+    await prisma.discussion.update({ where: { id }, data: { status: "failed" } });
+    return;
+  }
+
+  await prisma.discussion.update({ where: { id }, data: { status: "running" } });
+
+  const buffers = new Map<string, { role: string; content: string }[]>();
+  let summaryBox = d.summaryBox ?? d.brief;
+
+  try {
+    for (let round = 1; round <= d.rounds; round++) {
+      for (const persona of personas) {
+        const steers = await prisma.discussionMessage.findMany({
+          where: { discussionId: id, role: "user" },
+          orderBy: { createdAt: "asc" },
+        });
+        const steerText = steers.length ? steers.map((s) => `【你】：${s.content}`).join("\n") : "";
+
+        const sys =
+          loadSkill(persona.skillPath, persona.systemPrompt) +
+          `\n\n【讨论背景】\n${d.brief}` +
+          `\n\n【当前共识/要点】\n${summaryBox}` +
+          (steerText ? `\n\n【用户此刻插话】\n${steerText}` : "") +
+          `\n\n你现在是「${persona.name}」，轮到你发言。请用你的立场与风格，针对方案和其他人观点给出观点；简洁、有观点、不要重复别人。用第一人称。`;
+
+        const history = buffers.get(persona.id) ?? [];
+        let content: string;
+        try {
+          const modelObj = buildModel(provider, apiKey, model, baseUrl || undefined);
+          const { text } = await generateText({
+            model: modelObj,
+            system: sys,
+            messages: [
+              ...history.slice(-4).map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+              { role: "user" as const, content: history.length === 0 ? "开始讨论。" : "继续。" },
+            ],
+            abortSignal: AbortSignal.timeout(Math.min(Number(timeoutRaw ?? 120) * 1000, 120000)),
+          });
+          content = text.trim() || "（无回应）";
+        } catch (e) {
+          content = `（该轮发言失败：${e instanceof Error ? e.message : String(e)}）`;
+        }
+
+        await prisma.discussionMessage.create({
+          data: { discussionId: id, personaId: persona.id, sender: persona.name, role: "persona", turn: round, content },
+        });
+        buffers.set(persona.id, [...history, { role: "assistant", content }]);
+        summaryBox = (summaryBox + `\n- ${persona.name}：${content.slice(0, 120)}`).slice(-SUMMARY_LIMIT);
+        await prisma.discussion.update({ where: { id }, data: { summaryBox } });
+      }
+    }
+    await prisma.discussion.update({ where: { id }, data: { status: "done" } });
+  } catch (e) {
+    await prisma.discussion.update({ where: { id }, data: { status: "failed" } });
+  }
+}
