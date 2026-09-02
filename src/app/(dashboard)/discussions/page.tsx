@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLineDown, ChatCircleDots, PaperPlaneTilt } from "@phosphor-icons/react";
+import { ArrowLineDown, ChatCircleDots, PaperPlaneTilt, UsersThree } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
@@ -10,9 +10,14 @@ import { EmptyState } from "@/components/ui/empty-state";
 
 interface PersonaOption { id: string; name: string; perspectiveType: string }
 interface Msg { id: string; sender: string; role: string; turn: number; content: string; createdAt: string }
-interface Discussion { id: string; brief: string; rounds: number; status: string; messages: Msg[] }
+interface Discussion { id: string; brief: string; rounds: number; status: string; personas: PersonaOption[]; messages: Msg[] }
 
-/** 多人讨论室：选 2+ 个人物关于方案讨论，可插话，可生成综合建议 */
+const TYPE_LABEL: Record<string, string> = {
+  investor: "投资人", entrepreneur: "创业者", economist: "经济学家", analyst: "分析师",
+  customer: "客户", competitor: "竞对", custom: "自定义",
+};
+
+/** 多人讨论室（微信群聊式）：参与者列表 + 微信气泡流；可插话、综合建议 */
 export default function DiscussionsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -53,7 +58,6 @@ export default function DiscussionsPage() {
       });
       const d = await res.json();
       if (d.code !== 0) return setError(d.message ?? "创建失败");
-      setCurrent({ id: d.data.id, brief, rounds, status: "pending", messages: [] });
       setBrief("");
       startPolling(d.data.id);
     } catch {
@@ -81,7 +85,7 @@ export default function DiscussionsPage() {
         }
       }
     } catch {
-      /* 忽略轮询失败 */
+      /* ignore */
     }
   };
 
@@ -93,7 +97,7 @@ export default function DiscussionsPage() {
   useEffect(() => {
     if (viewId) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setCurrent({ id: viewId, brief: "", rounds: 5, status: "pending", messages: [] });
+      setCurrent({ id: viewId, brief: "", rounds: 5, status: "pending", personas: [], messages: [] });
       startPolling(viewId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -124,11 +128,9 @@ export default function DiscussionsPage() {
   };
 
   const running = current && (current.status === "running" || current.status === "pending");
-  const senderType = (role: string) =>
-    role === "persona" ? "persona" : role === "user" ? "user" : "summary";
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-10">
+    <div className="mx-auto max-w-5xl px-6 py-10">
       <div className="mb-6 flex items-center gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
           <ChatCircleDots size={22} weight="duotone" />
@@ -142,118 +144,171 @@ export default function DiscussionsPage() {
       {/* 发起讨论（仅非查看模式） */}
       {!viewId && (
         <div className="mb-6 rounded-2xl border border-hairline bg-white p-6">
-        <textarea
-          value={brief}
-          onChange={(e) => setBrief(e.target.value)}
-          rows={3}
-          placeholder="要讨论的方案/问题，例如：面向独立开发者的 AI 定价分析工具，订阅制月费 49 元，是否可行？"
-          className="w-full resize-y rounded-xl border border-hairline p-3 text-[15px] leading-[1.6] text-ink outline-none focus:border-primary"
-        />
-        <div className="mt-3 flex flex-wrap gap-2">
-          {personas.map((p) => {
-            const on = selected.includes(p.id);
-            return (
-              <button
-                key={p.id}
-                onClick={() => toggle(p.id)}
-                className={cn(
-                  "flex items-center gap-2 rounded-full border px-3 py-1.5 text-[13px] transition-colors",
-                  on ? "border-primary bg-primary/10 text-primary" : "border-hairline text-ink-60 hover:border-primary/40"
-                )}
+          <textarea
+            value={brief}
+            onChange={(e) => setBrief(e.target.value)}
+            rows={3}
+            placeholder="要讨论的方案/问题，例如：面向独立开发者的 AI 定价分析工具，订阅制月费 49 元，是否可行？"
+            className="w-full resize-y rounded-xl border border-hairline p-3 text-[15px] leading-[1.6] text-ink outline-none focus:border-primary"
+          />
+          <div className="mt-3 flex flex-wrap gap-2">
+            {personas.map((p) => {
+              const on = selected.includes(p.id);
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => toggle(p.id)}
+                  className={cn(
+                    "flex items-center gap-2 rounded-full border px-3 py-1.5 text-[13px] transition-colors",
+                    on ? "border-primary bg-primary/10 text-primary" : "border-hairline text-ink-60 hover:border-primary/40"
+                  )}
+                >
+                  <Avatar name={p.name} size="sm" />
+                  {p.name}
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-4 flex items-center justify-between">
+            <label className="flex items-center gap-2 text-[13px] text-ink-60">
+              轮数
+              <select
+                value={rounds}
+                onChange={(e) => setRounds(Number(e.target.value))}
+                className="h-9 rounded-lg border border-hairline px-2 text-[14px] outline-none focus:border-primary"
               >
-                <Avatar name={p.name} size="sm" />
-                {p.name}
-              </button>
-            );
-          })}
-        </div>
-        <div className="mt-4 flex items-center justify-between">
-          <label className="flex items-center gap-2 text-[13px] text-ink-60">
-            轮数
-            <select
-              value={rounds}
-              onChange={(e) => setRounds(Number(e.target.value))}
-              className="h-9 rounded-lg border border-hairline px-2 text-[14px] outline-none focus:border-primary"
-            >
-              {[2, 3, 5, 8, 10].map((r) => (
-                <option key={r} value={r}>{r}</option>
-              ))}
-            </select>
-          </label>
-          <Button onClick={start} disabled={starting}>
-            {starting ? "创建中…" : "开始讨论"}
-          </Button>
-        </div>
-        {error && <p className="mt-2 text-[13px] text-error">{error}</p>}
+                {[2, 3, 5, 8, 10].map((r) => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
+            </label>
+            <Button onClick={start} disabled={starting}>
+              {starting ? "创建中…" : "开始讨论"}
+            </Button>
+          </div>
+          {error && <p className="mt-2 text-[13px] text-error">{error}</p>}
         </div>
       )}
 
-      {/* 讨论流 */}
       {!current ? (
-        <EmptyState
-          icon={ChatCircleDots}
-          title="发起一场专家讨论"
-          description="输入方案、勾选至少 2 个人格，他们就会轮流发言并互相回应。"
-        />
+        !viewId ? (
+          <EmptyState
+            icon={ChatCircleDots}
+            title="发起一场专家讨论"
+            description="输入方案、勾选至少 2 个人格，他们就会轮流发言并互相回应。"
+          />
+        ) : (
+          <div className="h-48 animate-pulse rounded-2xl bg-pearl" />
+        )
       ) : (
-        <div className="rounded-2xl border border-hairline bg-white">
-          <div className="border-b border-divider-soft px-6 py-4">
-            <div className="flex items-center justify-between">
-              <span className="text-[15px] font-semibold">讨论：{current.brief.slice(0, 30)}…</span>
-              <span className="text-[12px] text-ink-48">
-                {current.status === "done" && "✓ 已结束"}
-                {current.status === "failed" && "✗ 失败"}
-                {running && "● 讨论中…"}
-              </span>
+        <div className="overflow-hidden rounded-2xl border border-hairline bg-white">
+          {/* 群标题 + 成员头像簇 */}
+          <div className="flex items-center gap-3 border-b border-divider-soft px-6 py-4">
+            <div className="flex -space-x-2">
+              {(current.personas ?? []).map((p) => (
+                <Avatar key={p.id} name={p.name} size="sm" className="ring-2 ring-white" />
+              ))}
+            </div>
+            <div className="min-w-0">
+              <div className="truncate text-[15px] font-semibold text-ink">讨论：{current.brief.slice(0, 30)}…</div>
+              <div className="text-[12px] text-ink-48">
+                {current.personas?.length ?? 2} 人 · {current.rounds} 轮 ·{" "}
+                {current.status === "done" && "已结束"}
+                {current.status === "failed" && "失败"}
+                {running && "讨论中…"}
+              </div>
+            </div>
+            <div className="ml-auto flex gap-2">
+              <Button variant="dark" size="sm" onClick={summarize} disabled={summarizing || current.messages.length === 0}>
+                {summarizing ? "总结中…" : "综合建议"}
+              </Button>
             </div>
           </div>
-          <div ref={scrollRef} className="max-h-[60vh] space-y-3 overflow-auto p-6">
-            {current.messages.map((m) => (
-              <div key={m.id} className={cn("flex gap-3", m.role === "user" && "flex-row-reverse")}>
-                <Avatar name={m.role === "user" ? "我" : m.role === "summary" ? "综合" : m.sender} size="sm" />
-                <div className="max-w-[78%]">
-                  <div className={cn("mb-1 text-[11px] text-ink-40", m.role === "user" && "text-right")}>{m.sender}</div>
-                  <div
-                    className={cn(
-                      "rounded-xl px-4 py-3 text-[14px] leading-[1.6] whitespace-pre-wrap",
-                      m.role === "user"
-                        ? "bg-primary text-white rounded-tr-none"
-                        : m.role === "summary"
-                          ? "bg-success/12 text-ink-80 rounded-tl-none"
-                          : "bg-parchment text-ink rounded-tl-none"
-                    )}
-                  >
-                    {m.content}
+
+          <div className="flex">
+            {/* 消息流 */}
+            <div className="min-w-0 flex-1 border-r border-divider-soft">
+              <div ref={scrollRef} className="h-[52vh] space-y-4 overflow-auto bg-parchment/40 p-6">
+                {current.messages.length === 0 ? (
+                  <p className="py-10 text-center text-[13px] text-ink-40">专家们正在陆续登场…</p>
+                ) : (
+                  current.messages.map((m) => {
+                    if (m.role === "summary") {
+                      return (
+                        <div key={m.id} className="mx-auto max-w-[85%] rounded-xl bg-success/12 px-4 py-3 text-[13px] leading-[1.7] text-ink-80">
+                          <div className="mb-1 text-[11px] font-semibold text-[#1f7a43]">📋 综合建议</div>
+                          <div className="whitespace-pre-wrap">{m.content}</div>
+                        </div>
+                      );
+                    }
+                    const isUser = m.role === "user";
+                    return (
+                      <div key={m.id} className={cn("flex gap-2.5", isUser && "flex-row-reverse")}>
+                        <Avatar name={isUser ? "我" : m.sender} size="sm" className="shrink-0" />
+                        <div className={cn("max-w-[76%]", isUser && "text-right")}>
+                          <div className={cn("mb-1 text-[11px] text-ink-40", isUser && "text-right")}>{isUser ? "我" : m.sender}</div>
+                          <div
+                            className={cn(
+                              "inline-block rounded-xl px-3.5 py-2 text-left text-[14px] leading-[1.6] whitespace-pre-wrap",
+                              isUser
+                                ? "bg-primary text-white rounded-tr-sm"
+                                : "bg-white text-ink rounded-tl-sm shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
+                            )}
+                          >
+                            {m.content}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+                {running && (
+                  <div className="flex items-center gap-2 py-1 text-[12px] text-ink-40">
+                    <PaperPlaneTilt size={14} className="animate-pulse" /> 专家们正在发言…
+                  </div>
+                )}
+              </div>
+
+              {/* 输入 + 插话 */}
+              <div className="border-t border-divider-soft p-3">
+                <div className="flex items-center gap-2 rounded-2xl border border-hairline bg-white p-2 transition-colors focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10">
+                  <input
+                    value={steer}
+                    onChange={(e) => setSteer(e.target.value)}
+                    placeholder="插一句：『乔布斯，如果成本砍半呢？』"
+                    onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), sendSteer())}
+                    className="h-9 flex-1 bg-transparent px-2 text-[14px] text-ink outline-none placeholder:text-ink-40"
+                  />
+                  <Button size="sm" onClick={sendSteer} disabled={!steer.trim()}>插话</Button>
+                </div>
+              </div>
+            </div>
+
+            {/* 讨论成员列表 */}
+            <aside className="w-56 shrink-0">
+              <div className="flex items-center gap-2 px-5 py-4 text-[12px] font-semibold uppercase tracking-wide text-ink-40">
+                <UsersThree size={14} /> 讨论成员（{current.personas?.length ?? 0}）
+              </div>
+              <div className="space-y-1 px-2 pb-4">
+                {(current.personas ?? []).map((p) => (
+                  <div key={p.id} className="flex items-center gap-2.5 rounded-lg px-3 py-2 hover:bg-parchment">
+                    <Avatar name={p.name} size="sm" />
+                    <div className="min-w-0">
+                      <div className="truncate text-[13px] font-medium text-ink">{p.name}</div>
+                      <div className="text-[11px] text-ink-40">{TYPE_LABEL[p.perspectiveType] ?? p.perspectiveType}</div>
+                    </div>
+                  </div>
+                ))}
+                <div className="flex items-center gap-2.5 rounded-lg px-3 py-2">
+                  <Avatar name="我" size="sm" />
+                  <div>
+                    <div className="text-[13px] font-medium text-ink">我</div>
+                    <div className="text-[11px] text-ink-40">主持人 · 可插话</div>
                   </div>
                 </div>
               </div>
-            ))}
-            {running && (
-              <div className="flex items-center gap-2 py-2 text-[13px] text-ink-40">
-                <PaperPlaneTilt size={16} className="animate-pulse" /> 专家们正在发言…
-              </div>
-            )}
+            </aside>
           </div>
-          {!running && (
-            <div className="flex items-center gap-2 border-t border-divider-soft p-4">
-              <input
-                value={steer}
-                onChange={(e) => setSteer(e.target.value)}
-                placeholder="插一句：『乔布斯，如果成本砍半呢？』"
-                onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), sendSteer())}
-                className="flex-1 h-10 rounded-full border border-hairline px-4 text-[14px] outline-none focus:border-primary"
-              />
-              <Button variant="secondary" onClick={sendSteer} disabled={!steer.trim()}>插话</Button>
-              <Button variant="dark" onClick={summarize} disabled={summarizing || current.messages.length === 0}>
-                {summarizing ? "总结中…" : "给综合建议"}
-              </Button>
-            </div>
-          )}
-          {!running && current.messages.some((m) => m.role === "summary") && (
-            <div className="p-4 pt-0 text-center text-[12px] text-ink-40">
-              <ArrowLineDown size={14} className="inline" /> 已生成综合建议，可继续插话或导出
-            </div>
-          )}
         </div>
       )}
     </div>
