@@ -272,7 +272,7 @@ export default function DiscussionsPage() {
   const personaNames = new Set((current?.personas ?? []).map((p) => p.name));
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-10">
+    <div className="mx-auto max-w-[1500px] px-6 py-8">
       <div className="mb-6 flex items-center gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
           <ChatCircleDots size={22} weight="duotone" />
@@ -440,7 +440,7 @@ export default function DiscussionsPage() {
             </div>
           </div>
 
-          <div className="flex h-[62vh]">
+          <div className="flex h-[calc(100vh-206px)]">
             {/* 内容列：消息画布 + 底部输入条 */}
             <div className="flex min-w-0 flex-1 flex-col">
               <div
@@ -574,7 +574,7 @@ export default function DiscussionsPage() {
             </div>
 
             {/* 右侧：参与人（独立一层） */}
-            <aside className="w-60 shrink-0 border-l border-hairline bg-pearl">
+            <aside className="w-72 shrink-0 border-l border-hairline bg-pearl">
               <div className="flex items-center gap-2 border-b border-divider-soft bg-parchment/50 px-4 py-3 text-[12px] font-semibold uppercase tracking-wide text-ink-40">
                 <UsersThree size={14} /> {isOne ? "交流对象" : "参与人"}（{current.personas?.length ?? 0}）
               </div>
