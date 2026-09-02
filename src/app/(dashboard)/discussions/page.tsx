@@ -384,9 +384,11 @@ export default function DiscussionsPage() {
           <div className="h-48 animate-pulse rounded-2xl bg-pearl" />
         )
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-hairline bg-white shadow-[0_16px_48px_rgba(0,0,0,0.07)]">
+        <div className="flex h-[calc(100vh-32px)]">
+          {/* 左列：聊天 */}
+          <div className="flex min-w-0 flex-1 flex-col">
           {/* 顶部：标题栏（独立一层） */}
-          <div className="flex items-center gap-3 border-b border-divider-soft bg-white px-6 py-4">
+          <div className="flex items-center gap-3 border-b border-divider-soft bg-white px-6 py-3">
             <div className="flex -space-x-2">
               {(current.personas ?? []).map((p) => (
                 <Avatar key={p.id} name={p.name} size="md" className="ring-2 ring-white" />
@@ -430,12 +432,9 @@ export default function DiscussionsPage() {
             </div>
           </div>
 
-          <div className="flex h-[calc(100vh-146px)]">
-            {/* 内容列：消息画布 + 底部输入条 */}
-            <div className="flex min-w-0 flex-1 flex-col">
               <div
                 ref={scrollRef}
-                className="flex-1 space-y-6 overflow-y-auto bg-parchment px-6 py-8 shadow-[inset_0_1px_0_rgba(0,0,0,0.05),inset_0_-1px_0_rgba(0,0,0,0.03)]"
+                className="flex-1 space-y-6 overflow-y-auto bg-parchment px-6 py-6"
               >
                 {current.messages.length === 0 ? (
                   <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
@@ -564,101 +563,73 @@ export default function DiscussionsPage() {
             </div>
 
             {/* 右侧：参与人（独立一层） */}
-            <aside className="w-72 shrink-0 border-l border-hairline bg-pearl">
-              <div className="flex items-center gap-2 border-b border-divider-soft bg-parchment/50 px-4 py-3 text-[12px] font-semibold uppercase tracking-wide text-ink-40">
-                <UsersThree size={14} /> {isOne ? "交流对象" : "参与人"}（{current.personas?.length ?? 0}）
-              </div>
-              <div className="space-y-1 p-2">
-                {(current.personas ?? []).map((p) => (
-                  <div key={p.id} className="flex items-center gap-2.5 rounded-lg px-3 py-2 hover:bg-parchment/70">
-                    <Avatar name={p.name} size="sm" />
-                    <div className="min-w-0">
-                      <div className="truncate text-[13px] font-medium text-ink">{p.name}</div>
-                      <div className="text-[11px] text-ink-40">{TYPE_LABEL[p.perspectiveType] ?? p.perspectiveType}</div>
+            <aside className="flex w-[300px] shrink-0 flex-col border-l border-hairline">
+              {/* 参与人（上） */}
+              <div className="flex min-h-0 flex-1 flex-col">
+                <div className="flex items-center gap-2 border-b border-divider-soft bg-pearl px-4 py-3 text-[12px] font-semibold uppercase tracking-wide text-ink-40">
+                  <UsersThree size={14} /> {isOne ? "交流对象" : "参与人"}（{current.personas?.length ?? 0}）
+                </div>
+                <div className="flex-1 space-y-1 overflow-y-auto bg-pearl p-2">
+                  {(current.personas ?? []).map((p) => (
+                    <div key={p.id} className="flex items-center gap-2.5 rounded-lg px-3 py-2 hover:bg-parchment/70">
+                      <Avatar name={p.name} size="sm" />
+                      <div className="min-w-0">
+                        <div className="truncate text-[13px] font-medium text-ink">{p.name}</div>
+                        <div className="text-[11px] text-ink-40">{TYPE_LABEL[p.perspectiveType] ?? p.perspectiveType}</div>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="flex items-center gap-2.5 rounded-lg px-3 py-2 hover:bg-parchment/70">
+                    <Avatar name="我" size="sm" />
+                    <div>
+                      <div className="text-[13px] font-medium text-ink">我</div>
+                      <div className="text-[11px] text-ink-40">主持人 · {isOne ? "提问" : "可插话"}</div>
                     </div>
                   </div>
-                ))}
-                <div className="flex items-center gap-2.5 rounded-lg px-3 py-2 hover:bg-parchment/70">
-                  <Avatar name="我" size="sm" />
-                  <div>
-                    <div className="text-[13px] font-medium text-ink">我</div>
-                    <div className="text-[11px] text-ink-40">主持人 · {isOne ? "提问" : "可插话"}</div>
-                  </div>
+                </div>
+              </div>
+
+              {/* 产物与引用（下） */}
+              <div className="flex min-h-0 flex-[0.9] flex-col border-t border-divider-soft">
+                <div className="flex items-center gap-2 border-b border-divider-soft bg-pearl px-4 py-3 text-[12px] font-semibold uppercase tracking-wide text-ink-40">
+                  <FileText size={14} /> 产物与引用
+                </div>
+                <div className="flex-1 space-y-3 overflow-y-auto bg-parchment/40 p-3">
+                  {current.attachmentName && (
+                    <div className="flex items-center gap-2.5 rounded-lg border border-hairline bg-white p-2.5">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                        <FilePdf size={16} weight="duotone" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[13px] font-medium text-ink">{current.attachmentName}</div>
+                        <div className="text-[11px] text-ink-48">已读取 {current.attachmentCharCount ?? 0} 字{current.attachmentTruncated ? "（截取）" : ""}</div>
+                      </div>
+                    </div>
+                  )}
+                  {current.artifacts && current.artifacts.length > 0 ? (
+                    <div className="space-y-2.5">
+                      {current.artifacts.map((a) => (
+                        <div key={a.id} className="rounded-lg border border-hairline bg-white p-2.5">
+                          <div className="truncate text-[13px] font-medium text-ink">{a.title}</div>
+                          {a.summary && (
+                            <div className="mt-0.5 line-clamp-2 text-[11px] leading-[1.5] text-ink-48">{a.summary}</div>
+                          )}
+                          <div className="mt-1.5 flex items-center gap-3 text-[11px]">
+                            <button onClick={() => setViewArtifact(a)} className="font-medium text-primary hover:underline">查看</button>
+                            <button onClick={() => downloadArtifact(a)} className="text-ink-60 hover:text-primary">下载 md</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 rounded-lg border border-dashed border-hairline bg-parchment/50 px-3 py-3 text-[11px] text-ink-48">
+                      <FileText size={14} className="text-ink-40" /> 点「总结」生成 md 报告
+                    </div>
+                  )}
                 </div>
               </div>
             </aside>
           </div>
-        </div>
-      )}
-
-      {/* 引用的文件：本次讨论上传的资料 */}
-      {current && current.attachmentName && (
-        <div className="mt-6">
-          <div className="mb-3 flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <FilePdf size={16} weight="duotone" />
-            </div>
-            <h2 className="text-[16px] font-semibold tracking-[-0.3px]">引用文件</h2>
-            <span className="text-[12px] text-ink-40">本次讨论引用的资料</span>
-          </div>
-          <div className="flex items-center gap-3 rounded-xl border border-hairline bg-white p-3.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <FilePdf size={18} weight="duotone" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-[14px] font-medium text-ink">{current.attachmentName}</div>
-              <div className="text-[12px] text-ink-48">
-                已读取 {current.attachmentCharCount ?? 0} 字{current.attachmentTruncated ? "（已截取）" : ""}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 产物列表：综合建议生成后汇总成 md 报告 */}
-      {current && (
-        <div className="mt-6">
-          <div className="mb-3 flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <FileText size={16} weight="duotone" />
-            </div>
-            <h2 className="text-[16px] font-semibold tracking-[-0.3px]">产物</h2>
-            <span className="text-[12px] text-ink-40">汇总讨论，保存成可下载的 md 报告</span>
-          </div>
-          {current.artifacts && current.artifacts.length > 0 ? (
-            <div className="grid gap-2.5 sm:grid-cols-2">
-              {current.artifacts.map((a) => (
-                <div key={a.id} className="flex items-start gap-3 rounded-xl border border-hairline bg-white p-3.5">
-                  <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                    <FileText size={18} weight="duotone" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[14px] font-medium text-ink">{a.title}</div>
-                    {a.summary && (
-                      <div className="mt-0.5 line-clamp-2 text-[12px] leading-[1.5] text-ink-48">{a.summary}</div>
-                    )}
-                    <div className="mt-2 flex items-center gap-3 text-[12px]">
-                      <button onClick={() => setViewArtifact(a)} className="font-medium text-primary hover:underline">
-                        查看
-                      </button>
-                      <button onClick={() => downloadArtifact(a)} className="text-ink-60 hover:text-primary">
-                        下载 md
-                      </button>
-                      <span className="ml-auto text-ink-40">
-                        {new Date(a.createdAt).toLocaleDateString("zh-CN")}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="flex items-center gap-3 rounded-xl border border-dashed border-hairline bg-parchment/50 px-4 py-5 text-[13px] text-ink-48">
-              <FileText size={16} className="text-ink-40" />
-              还没有产物。点击上方「总结」即可把讨论汇总成一份 md 报告。
-            </div>
-          )}
-        </div>
       )}
 
       {/* 产物预览 */}
