@@ -1,0 +1,75 @@
+@import "tailwindcss";
+
+/* DESIGN.md 设计 token（Apple 设计语言）—— 单一强调色 / 明暗瓦片 / pill 动作语法
+   2026-09-01 精修（design-taste）：ink-48 加深至 #6e6e73 保证 WCAG AA、新增占位符 ink-40、
+   全局 focus-visible 环、细滚动条、克制入场动效（尊重 prefers-reduced-motion） */
+@theme inline {
+  --color-primary: #0066cc;
+  --color-primary-focus: #0071e3;
+  --color-primary-on-dark: #2997ff;
+  --color-canvas: #f4f4f6;
+  --color-parchment: #f2f2f4;
+  --color-pearl: #fafafc;
+  --color-tile-1: #272729;
+  --color-tile-2: #2a2a2c;
+  --color-tile-3: #252527;
+  --color-ink: #1d1d1f;
+  --color-ink-80: #333333;
+  --color-ink-60: #48484a;
+  --color-ink-48: #6e6e73;
+  --color-ink-40: #86868b;
+  --color-hairline: #e0e0e0;
+  --color-divider-soft: #f0f0f0;
+  --color-success: #2e9e5b;
+  --color-warning: #ff9500;
+  --color-error: #ff3b30;
+  --font-sans: system-ui, -apple-system, "SF Pro Display", "SF Pro Text", "Segoe UI",
+    Inter, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  background: var(--color-parchment);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 17px;
+  line-height: 1.47;
+  letter-spacing: -0.374px;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "cv11", "ss01";
+}
+
+::selection {
+  background: rgba(0, 102, 204, 0.16);
+}
+
+/* 全局键盘焦点（WCAG AA） */
+:focus-visible {
+  outline: 2px solid var(--color-primary-focus);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* 细滚动条 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
+}
+
+/* 克制入场动效：仅 transform/opacity，尊重减少动态 */
+@media (prefers-reduced-motion: no-preference) {
+  .fl-rise {
+    animation: fl-rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .fl-rise-delay-1 { animation-delay: 0.06s; }
+  .fl-rise-delay-2 { animation-delay: 0.12s; }
+  .fl-rise-delay-3 { animation-delay: 0.18s; }
+  @keyframes fl-rise {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: none; }
+  }
+}

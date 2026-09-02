@@ -1,0 +1,228 @@
+/**
+ * 任务 T1-02: Prisma 数据模型（10 实体 + 5 枚举）
+ * 目标文件: prisma/schema.prisma
+ * 依据: docs/prd/03_DATAMODEL.md v1.1
+ */
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- 枚举 ----------
+enum PerspectiveType {
+  investor
+  customer
+  competitor
+  economist
+  entrepreneur
+  analyst
+  custom
+}
+
+enum RunStatus {
+  pending
+  running
+  done
+  failed
+  cancelled
+}
+
+enum StepStatus {
+  pending
+  running
+  done
+  failed
+  skipped
+}
+
+enum FeedbackTargetType {
+  step
+  report
+}
+
+enum MessageRole {
+  user
+  assistant
+}
+
+// ---------- 实体 ----------
+model Skill {
+  id           String   @id @default(cuid())
+  name         String
+  description  String?
+  category     String   @default("通用")
+  instructions String
+  inputSchema  Json?
+  outputSchema Json?
+  source       String   @default("manual") // builtin | manual | npx
+  sourceRef    String?
+  tags         Json?
+  isBuiltin    Boolean  @default(false)
+  version      String   @default("1.0")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  steps     RecipeStep[]
+  feedbacks Feedback[]
+
+  @@index([category])
+  @@index([name])
+}
+
+model Persona {
+  id              String          @id @default(cuid())
+  name            String
+  description     String?
+  systemPrompt    String
+  perspectiveType PerspectiveType @default(custom)
+  avatarType      String          @default("auto") // builtin | auto
+  avatarValue     String?
+  isBuiltin       Boolean         @default(false)
+  tags            Json?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  steps         RecipeStep[]
+  feedbacks     Feedback[]
+  conversations Conversation[]
+
+  @@index([perspectiveType])
+}
+
+model Recipe {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  version     String   @default("1.0")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  steps RecipeStep[]
+  runs  Run[]
+
+  @@index([name])
+}
+
+model RecipeStep {
+  id           String  @id @default(cuid())
+  recipeId     String
+  position     Int
+  skillId      String
+  personaId    String?
+  inputMapping Json?
+
+  recipe  Recipe  @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  skill   Skill   @relation(fields: [skillId], references: [id], onDelete: Restrict)
+  persona Persona? @relation(fields: [personaId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([recipeId, position])
+  @@index([skillId])
+  @@index([personaId])
+}
+
+model Run {
+  id             String    @id @default(cuid())
+  recipeId       String?
+  recipeSnapshot Json
+  ideaInput      String
+  status         RunStatus @default(pending)
+  currentStep    Int       @default(0)
+  provider       String?
+  model          String?
+  finalReport    String?
+  error          String?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  recipe    Recipe?   @relation(fields: [recipeId], references: [id], onDelete: SetNull)
+  steps     RunStep[]
+  feedbacks Feedback[]
+
+  @@index([recipeId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model RunStep {
+  id         String     @id @default(cuid())
+  runId      String
+  stepIndex  Int
+  skillId    String?
+  personaId  String?
+  skillName  String
+  personaName String?
+  input      Json
+  output     Json?
+  status     StepStatus @default(pending)
+  error      String?
+  durationMs Int?
+  createdAt  DateTime   @default(now())
+
+  run Run @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+}
+
+model Feedback {
+  id         String             @id @default(cuid())
+  runId      String
+  recipeId   String?
+  skillId    String?
+  personaId  String?
+  targetType FeedbackTargetType
+  stepIndex  Int?
+  rating     Int
+  note       String?
+  createdAt  DateTime           @default(now())
+
+  run      Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  skill    Skill?   @relation(fields: [skillId], references: [id], onDelete: SetNull)
+  persona  Persona? @relation(fields: [personaId], references: [id], onDelete: SetNull)
+
+  @@index([runId])
+  @@index([skillId])
+  @@index([recipeId])
+}
+
+model Setting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Conversation {
+  id        String   @id @default(cuid())
+  personaId String
+  title     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  persona  Persona  @relation(fields: [personaId], references: [id], onDelete: Cascade)
+  messages Message[]
+
+  @@index([personaId])
+  @@index([updatedAt])
+}
+
+model Message {
+  id             String      @id @default(cuid())
+  conversationId String
+  role           MessageRole
+  content        String
+  createdAt      DateTime    @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+}

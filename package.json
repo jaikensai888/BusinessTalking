@@ -1,0 +1,41 @@
+{
+  "name": "business-talking",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3001",
+    "build": "next build",
+    "start": "next start -p 3001",
+    "lint": "eslint"
+  },
+  "prisma": {
+    "seed": "node prisma/seed.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.46",
+    "@ai-sdk/deepseek": "^3.0.37",
+    "@ai-sdk/openai": "^4.0.53",
+    "@phosphor-icons/react": "^2.1.10",
+    "@prisma/client": "^6.19.3",
+    "ai": "^7.0.87",
+    "clsx": "^2.1.1",
+    "next": "16.3.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "tailwind-merge": "^3.6.0",
+    "unpdf": "^1.8.1",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.4",
+    "prisma": "6.19.3",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  },
+  "packageManager": "pnpm@11.8.0"
+}
