@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { useSearchParams } from "next/navigation";
-import { ChatCircleDots, FilePdf, FileText, PaperPlaneTilt, Plus, SpinnerGap, UsersThree, X } from "@phosphor-icons/react";
+import { ArrowUp, ChatCircleDots, FilePdf, FileText, PaperPlaneTilt, Plus, SpinnerGap, UsersThree, X } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
@@ -465,55 +465,71 @@ export default function DiscussionsPage() {
               </div>
 
               {/* 底部输入条（独立一层） */}
-              <div className="border-t border-hairline bg-white px-4 py-3 shadow-[0_-4px_14px_rgba(0,0,0,0.05)]">
-                <div className="relative flex items-center gap-2 rounded-2xl border border-hairline bg-white p-2 shadow-[0_2px_10px_rgba(0,0,0,0.05)] transition-colors focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10">
-                  {!isOne && mentionQuery !== null && mentionOptions.length > 0 && (
-                    <div className="absolute bottom-full left-0 right-0 mb-2 overflow-hidden rounded-xl border border-hairline bg-white shadow-[0_8px_24px_rgba(0,0,0,0.1)]">
-                      <div className="border-b border-divider-soft px-3 py-1.5 text-[11px] text-ink-40">选择要 @ 的成员</div>
-                      <div className="max-h-44 overflow-auto py-1">
-                        {mentionOptions.map((p) => (
-                          <button
-                            key={p.id}
-                            type="button"
-                            onMouseDown={(e) => e.preventDefault()}
-                            onClick={() => insertMention(p.name)}
-                            className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-parchment"
-                          >
-                            <Avatar name={p.name} size="sm" />
-                            <div>
-                              <div className="text-[13px] font-medium text-ink">{p.name}</div>
-                              <div className="text-[11px] text-ink-40">{TYPE_LABEL[p.perspectiveType] ?? p.perspectiveType}</div>
-                            </div>
-                          </button>
-                        ))}
+              <div className="border-t border-hairline bg-white px-4 py-3">
+                <div className="relative flex items-end gap-2">
+                  {/* 输入框：下沉式 field，聚焦转白 */}
+                  <div className="relative flex min-w-0 flex-1 items-center rounded-xl border border-hairline bg-parchment/40 px-3 transition-colors focus-within:border-primary/40 focus-within:bg-white focus-within:ring-4 focus-within:ring-primary/10">
+                    {!isOne && mentionQuery !== null && mentionOptions.length > 0 && (
+                      <div className="absolute bottom-full left-0 right-0 mb-2 overflow-hidden rounded-xl border border-hairline bg-white shadow-[0_8px_24px_rgba(0,0,0,0.1)]">
+                        <div className="border-b border-divider-soft px-3 py-1.5 text-[11px] text-ink-40">选择要 @ 的成员</div>
+                        <div className="max-h-44 overflow-auto py-1">
+                          {mentionOptions.map((p) => (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => insertMention(p.name)}
+                              className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-parchment"
+                            >
+                              <Avatar name={p.name} size="sm" />
+                              <div>
+                                <div className="text-[13px] font-medium text-ink">{p.name}</div>
+                                <div className="text-[11px] text-ink-40">{TYPE_LABEL[p.perspectiveType] ?? p.perspectiveType}</div>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  )}
-                  <input
-                    ref={steerRef}
-                    value={steer}
-                    onChange={handleSteerChange}
-                    placeholder={
-                      isOne
-                        ? `向 ${current.personas?.[0]?.name ?? "专家"} 提问…`
-                        : "插一句，用 @ 点名：「@乔布斯 如果成本砍半呢？」"
-                    }
-                    onKeyDown={(e) => {
-                      if (!isOne && mentionQuery !== null && mentionOptions.length > 0) {
-                        if (e.key === "Escape") { setMentionQuery(null); e.preventDefault(); return; }
-                        if (e.key === "Enter") { e.preventDefault(); insertMention(mentionOptions[0].name); return; }
-                      } else if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        sendSteer();
+                    )}
+                    <input
+                      ref={steerRef}
+                      value={steer}
+                      onChange={handleSteerChange}
+                      placeholder={
+                        isOne
+                          ? `向 ${current.personas?.[0]?.name ?? "专家"} 提问…`
+                          : "插一句，用 @ 点名：「@乔布斯 如果成本砍半呢？」"
                       }
-                    }}
-                    className="h-9 flex-1 bg-transparent px-2 text-[14px] text-ink outline-none placeholder:text-ink-40"
-                  />
-                  <Button size="sm" onClick={sendSteer} disabled={sending || !steer.trim()}>
-                    {sending ? "发送中…" : isOne ? "发送" : "插话"}
-                  </Button>
+                      onKeyDown={(e) => {
+                        if (!isOne && mentionQuery !== null && mentionOptions.length > 0) {
+                          if (e.key === "Escape") { setMentionQuery(null); e.preventDefault(); return; }
+                          if (e.key === "Enter") { e.preventDefault(); insertMention(mentionOptions[0].name); return; }
+                        } else if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          sendSteer();
+                        }
+                      }}
+                      className="h-11 flex-1 bg-transparent text-[14px] text-ink outline-none placeholder:text-ink-40"
+                    />
+                  </div>
+                  {/* 发送按钮：圆形 Action Blue */}
+                  <button
+                    type="button"
+                    onClick={sendSteer}
+                    disabled={sending || !steer.trim()}
+                    aria-label={isOne ? "发送" : "插话"}
+                    title={isOne ? "发送" : "插话"}
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-white shadow-[0_6px_16px_rgba(0,102,204,0.3)] transition-all duration-150 hover:bg-[#0071e3] active:scale-95 disabled:opacity-45 disabled:shadow-none"
+                  >
+                    {sending ? <SpinnerGap size={18} weight="bold" className="animate-spin" /> : <ArrowUp size={18} weight="bold" />}
+                  </button>
                 </div>
-                <p className="mt-2 text-center text-[11px] text-ink-40">Enter 发送 · Shift+Enter 换行</p>
+                <div className="mt-1.5 flex items-center justify-between px-1 text-[11px] text-ink-40">
+                  <span>Enter 发送 · Shift+Enter 换行</span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="h-1.5 w-1.5 rounded-full bg-success" /> 专家在线
+                  </span>
+                </div>
               </div>
             </div>
 
