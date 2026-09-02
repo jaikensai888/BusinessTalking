@@ -323,7 +323,7 @@ export default function DiscussionsPage() {
             </div>
             <div className="ml-auto flex gap-2">
               <Button variant="dark" size="sm" onClick={summarize} disabled={summarizing || current.messages.length === 0}>
-                {summarizing ? "总结中…" : "综合建议"}
+                {summarizing ? "总结中…" : "总结"}
               </Button>
             </div>
           </div>
@@ -501,7 +501,7 @@ export default function DiscussionsPage() {
           ) : (
             <div className="flex items-center gap-3 rounded-xl border border-dashed border-hairline bg-parchment/50 px-4 py-5 text-[13px] text-ink-48">
               <FileText size={16} className="text-ink-40" />
-              还没有产物。点击上方「综合建议」即可把讨论汇总成一份 md 报告。
+              还没有产物。点击上方「总结」即可把讨论汇总成一份 md 报告。
             </div>
           )}
         </div>
