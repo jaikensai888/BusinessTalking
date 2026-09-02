@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, ChatCircleDots, CheckCircle, Clock, Play, XCircle } from "@phosphor-icons/react";
+import { ArrowRight, ChatCircleDots, CheckCircle, Clock, FilePdf, Play, XCircle } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
 
@@ -13,6 +13,7 @@ interface Space {
   preview: string;
   status: "pending" | "running" | "ready" | "done" | "failed" | "cancelled";
   meta: string;
+  attachmentName?: string | null;
   createdAt: string;
 }
 
@@ -39,13 +40,14 @@ export function SpacesCards({ refreshKey, onNew }: { refreshKey: number; onNew?:
         fetch("/api/v1/runs?page_size=24").then((r) => r.json()),
       ]);
 
-      const dSpaces: Space[] = disc.code === 0 ? disc.data.items.map((i: { id: string; brief: string; status: string; personaCount?: number; createdAt: string }) => ({
+      const dSpaces: Space[] = disc.code === 0 ? disc.data.items.map((i: { id: string; brief: string; status: string; personaCount?: number; attachmentName?: string | null; createdAt: string }) => ({
         id: i.id,
         type: "discussion",
         title: i.brief.slice(0, 24),
         preview: i.brief.slice(0, 60),
         status: i.status,
         meta: i.personaCount === 1 ? "1 对 1" : "讨论",
+        attachmentName: i.attachmentName,
         createdAt: i.createdAt,
       })) : [];
 
@@ -141,6 +143,12 @@ export function SpacesCards({ refreshKey, onNew }: { refreshKey: number; onNew?:
             </div>
             <span className="line-clamp-1 text-[15px] font-semibold leading-[1.3] text-ink">{s.title}</span>
             <p className="line-clamp-2 text-[13px] leading-[1.55] text-ink-48">{s.preview}</p>
+            {s.attachmentName && (
+              <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-ink-40">
+                <FilePdf size={12} className="shrink-0 text-error" />
+                <span className="truncate">{s.attachmentName}</span>
+              </div>
+            )}
             <div className="mt-auto pt-1 text-[11px] text-ink-40">
               {new Date(s.createdAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
             </div>

@@ -235,7 +235,14 @@ export default function WorkspacePage() {
       const res = await fetch("/api/v1/discussions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brief, personaIds, rounds: 5 }),
+        body: JSON.stringify({
+          brief,
+          personaIds,
+          rounds: 5,
+          attachment: attachment
+            ? { filename: attachment.filename, charCount: attachment.charCount, truncated: attachment.truncated }
+            : null,
+        }),
       });
       const d = await res.json();
       if (d.code === 0) {

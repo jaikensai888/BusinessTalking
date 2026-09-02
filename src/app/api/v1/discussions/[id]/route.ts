@@ -22,6 +22,9 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/v1/discussions/
     rounds: d.rounds,
     status: d.status,
     summaryBox: d.summaryBox,
+    attachmentName: d.attachmentName,
+    attachmentCharCount: d.attachmentCharCount,
+    attachmentTruncated: d.attachmentTruncated,
     personas: personas.map((p) => ({ id: p.id, name: p.name, perspectiveType: p.perspectiveType })),
     messages: d.messages.map((m) => ({
       id: m.id,

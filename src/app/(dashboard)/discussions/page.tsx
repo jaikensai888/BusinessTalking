@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChatCircleDots, FileText, PaperPlaneTilt, UsersThree, X } from "@phosphor-icons/react";
+import { ChatCircleDots, FilePdf, FileText, PaperPlaneTilt, Plus, SpinnerGap, UsersThree, X } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
@@ -11,7 +11,18 @@ import { EmptyState } from "@/components/ui/empty-state";
 interface PersonaOption { id: string; name: string; perspectiveType: string }
 interface Msg { id: string; sender: string; role: string; turn: number; content: string; createdAt: string }
 interface Artifact { id: string; title: string; type: string; filePath?: string | null; summary?: string | null; content: string; createdAt: string }
-interface Discussion { id: string; brief: string; rounds: number; status: string; personas: PersonaOption[]; messages: Msg[]; artifacts?: Artifact[] }
+interface Discussion {
+  id: string;
+  brief: string;
+  rounds: number;
+  status: string;
+  personas: PersonaOption[];
+  messages: Msg[];
+  artifacts?: Artifact[];
+  attachmentName?: string | null;
+  attachmentCharCount?: number | null;
+  attachmentTruncated?: boolean | null;
+}
 
 const TYPE_LABEL: Record<string, string> = {
   investor: "投资人", entrepreneur: "创业者", economist: "经济学家", analyst: "分析师",
@@ -61,6 +72,10 @@ export default function DiscussionsPage() {
   const steerRef = useRef<HTMLInputElement | null>(null);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [viewArtifact, setViewArtifact] = useState<Artifact | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [attachment, setAttachment] = useState<{ filename: string; charCount: number; truncated: boolean } | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
 
   useEffect(() => {
     fetch("/api/v1/personas?page_size=100")
@@ -73,6 +88,39 @@ export default function DiscussionsPage() {
   const toggle = (id: string) =>
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
+  /** 上传并读取引用文件（pdf/txt/md 等） */
+  const onFile = async (file: File) => {
+    if (file.size > 20 * 1024 * 1024) {
+      setError("文件过大（上限 20MB）");
+      return;
+    }
+    setUploading(true);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/v1/extract", { method: "POST", body: fd });
+      const d = await res.json();
+      if (d.code === 0) {
+        setAttachment({ filename: d.data.filename, charCount: d.data.charCount, truncated: d.data.truncated });
+      } else {
+        setError(d.message ?? "读取文件失败");
+      }
+    } catch {
+      setError("读取文件失败");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const onDropFile = (e: DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) void onFile(file);
+  };
+
   const start = async () => {
     if (!brief.trim()) return setError("请先输入要讨论的方案/问题");
     if (selected.length < 1) return setError("请至少选择 1 个人格参与讨论");
@@ -82,11 +130,19 @@ export default function DiscussionsPage() {
       const res = await fetch("/api/v1/discussions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brief, personaIds: selected, rounds }),
+        body: JSON.stringify({
+          brief,
+          personaIds: selected,
+          rounds,
+          attachment: attachment
+            ? { filename: attachment.filename, charCount: attachment.charCount, truncated: attachment.truncated }
+            : null,
+        }),
       });
       const d = await res.json();
       if (d.code !== 0) return setError(d.message ?? "创建失败");
       setBrief("");
+      setAttachment(null);
       startPolling(d.data.id);
     } catch {
       setError("创建失败");
@@ -225,7 +281,18 @@ export default function DiscussionsPage() {
 
       {/* 发起讨论（仅非查看模式） */}
       {!viewId && (
-        <div className="mb-6 rounded-2xl border border-hairline bg-white p-6">
+        <div
+          className={cn(
+            "mb-6 rounded-2xl border border-hairline bg-white p-6 transition-shadow",
+            dragOver && "ring-4 ring-primary/40"
+          )}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragOver(true);
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={onDropFile}
+        >
           <textarea
             value={brief}
             onChange={(e) => setBrief(e.target.value)}
@@ -233,6 +300,38 @@ export default function DiscussionsPage() {
             placeholder="要讨论的方案/问题，例如：面向独立开发者的 AI 定价分析工具，订阅制月费 49 元，是否可行？"
             className="w-full resize-y rounded-xl border border-hairline p-3 text-[15px] leading-[1.6] text-ink outline-none focus:border-primary"
           />
+
+          {/* 引用文件（上传资料） */}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="flex items-center gap-1.5 rounded-lg border border-hairline bg-white px-3 py-1.5 text-[13px] text-ink-60 shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-colors hover:border-primary/40 hover:text-ink"
+            >
+              {uploading ? <SpinnerGap size={14} className="animate-spin" /> : <Plus size={14} weight="bold" />}
+              引用文件
+            </button>
+            {attachment && (
+              <span className="flex items-center gap-2 rounded-lg bg-parchment px-3 py-1.5 text-[13px] text-ink-60">
+                <FilePdf size={15} className="shrink-0 text-error" />
+                <span className="max-w-[240px] truncate">{attachment.filename}</span>
+                <span className="text-[11px] text-ink-40">
+                  已读取 {attachment.charCount} 字{attachment.truncated ? "（截取）" : ""}
+                </span>
+                <button
+                  type="button"
+                  aria-label="移除引用文件"
+                  onClick={() => setAttachment(null)}
+                  className="shrink-0 text-ink-40 hover:text-ink"
+                >
+                  <X size={14} />
+                </button>
+              </span>
+            )}
+            <span className="text-[12px] text-ink-40">可拖拽或上传 PDF / TXT / MD</span>
+          </div>
+
           <div className="mt-3 flex flex-wrap gap-2">
             {personas.map((p) => {
               const on = selected.includes(p.id);
@@ -461,6 +560,30 @@ export default function DiscussionsPage() {
         </div>
       )}
 
+      {/* 引用的文件：本次讨论上传的资料 */}
+      {current && current.attachmentName && (
+        <div className="mt-6">
+          <div className="mb-3 flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <FilePdf size={16} weight="duotone" />
+            </div>
+            <h2 className="text-[16px] font-semibold tracking-[-0.3px]">引用文件</h2>
+            <span className="text-[12px] text-ink-40">本次讨论引用的资料</span>
+          </div>
+          <div className="flex items-center gap-3 rounded-xl border border-hairline bg-white p-3.5">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <FilePdf size={18} weight="duotone" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[14px] font-medium text-ink">{current.attachmentName}</div>
+              <div className="text-[12px] text-ink-48">
+                已读取 {current.attachmentCharCount ?? 0} 字{current.attachmentTruncated ? "（已截取）" : ""}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 产物列表：综合建议生成后汇总成 md 报告 */}
       {current && (
         <div className="mt-6">
@@ -543,6 +666,19 @@ export default function DiscussionsPage() {
           </div>
         </div>
       )}
+
+      {/* 隐藏文件输入（引用文件） */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".pdf,.txt,.md,.markdown,.csv,.json"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) void onFile(f);
+          e.target.value = "";
+        }}
+      />
     </div>
   );
 }
