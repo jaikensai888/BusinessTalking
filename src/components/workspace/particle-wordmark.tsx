@@ -6,11 +6,12 @@ import * as THREE from "three";
 const FONT = '"Playfair Display", Didot, "Bodoni Moda", Georgia, serif';
 const WORDMARK = "BusinessTalking";
 const COLOR = 0x1f6bff; // 蓝
+const SAMPLE_STEP = 3; // 点阵网格单元（方块像素边长）
 
 /**
- * BusinessTalking 标题：粒子拼字 + 分散重组。
- * 把 "BusinessTalking" 采样成粒子——先散开，再聚合成字；随后周期性打散→重组，
- * 并轻微漂浮 + 鼠标推开。衬线字形、蓝色、普通混合（浅色背景可见）。尊重 reduced-motion。
+ * BusinessTalking 标题：衬线字 + 方块点阵粒子。
+ * 用 Playfair 衬线字形，把 "BusinessTalking" 采样成一个个方块点（点阵/像素屏风格）；
+ * 粒子先聚合拼成字，再轻微漂浮，鼠标靠近推开。尊重 prefers-reduced-motion。
  */
 export function ParticleWordmark() {
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -26,18 +27,14 @@ export function ParticleWordmark() {
     let disposed = false;
     const clock = new THREE.Clock();
 
-    // 柔和圆形粒子贴图
+    // 正方形粒子贴图（点阵像素风，带轻微柔边）
     const makeSprite = () => {
-      const s = 64;
+      const s = 16;
       const cv = document.createElement("canvas");
       cv.width = cv.height = s;
       const c = cv.getContext("2d")!;
-      const g = c.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
-      g.addColorStop(0, "rgba(255,255,255,1)");
-      g.addColorStop(0.4, "rgba(255,255,255,0.82)");
-      g.addColorStop(1, "rgba(255,255,255,0)");
-      c.fillStyle = g;
-      c.fillRect(0, 0, s, s);
+      c.fillStyle = "rgba(255,255,255,1)";
+      c.fillRect(1, 1, s - 2, s - 2); // 白色方块，四周留 1px 柔边
       const tex = new THREE.CanvasTexture(cv);
       tex.needsUpdate = true;
       return tex;
@@ -76,7 +73,7 @@ export function ParticleWordmark() {
       scene = new THREE.Scene();
       camera = new THREE.OrthographicCamera(-W / 2, W / 2, H / 2, -H / 2, -100, 100);
 
-      // 把文字采样成点（世界坐标 = 像素中心）
+      // 用衬线字形采样成点阵方块（整格命中就放一个方块点）
       const fs = fontSize(W);
       const off = document.createElement("canvas");
       off.width = W;
@@ -90,11 +87,18 @@ export function ParticleWordmark() {
       c.fillText(WORDMARK, W / 2, H / 2);
       const img = c.getImageData(0, 0, W, H);
       const px = img.data;
-      const step = Math.max(2, Math.round(fs / 22));
       const pts: number[] = [];
-      for (let y = 0; y < H; y += step) {
-        for (let x = 0; x < W; x += step) {
-          if (px[(y * W + x) * 4 + 3] > 128) pts.push(x - W / 2, H / 2 - y, 0);
+      for (let gy = 0; gy < H; gy += SAMPLE_STEP) {
+        for (let gx = 0; gx < W; gx += SAMPLE_STEP) {
+          let hit = false;
+          for (let sy = 0; sy < SAMPLE_STEP && !hit; sy++) {
+            for (let sx = 0; sx < SAMPLE_STEP && !hit; sx++) {
+              const x = gx + sx;
+              const y = gy + sy;
+              if (x < W && y < H && px[(y * W + x) * 4 + 3] > 128) hit = true;
+            }
+          }
+          if (hit) pts.push(gx + SAMPLE_STEP / 2 - W / 2, H / 2 - (gy + SAMPLE_STEP / 2), 0);
         }
       }
       count = pts.length / 3;
@@ -122,7 +126,7 @@ export function ParticleWordmark() {
       geom.setAttribute("position", new THREE.BufferAttribute(cur, 3));
       sprite = sprite || makeSprite();
       mat = new THREE.PointsMaterial({
-        size: step * 0.85,
+        size: SAMPLE_STEP * 0.82, // 方块占网格约 82%，留点阵间隙
         map: sprite,
         color: COLOR,
         transparent: true,
@@ -148,7 +152,7 @@ export function ParticleWordmark() {
         document.fonts
           .load(`700 ${fs}px "Playfair Display"`)
           .then(() => {
-            W = 0; // 强制 re-init，用 Playfair 重新采样
+            W = 0;
             resize();
           })
           .catch(() => undefined);
@@ -160,29 +164,23 @@ export function ParticleWordmark() {
     const paint = () => {
       if (!geom || !camera || !renderer || !scene || disposed) return;
       const t = clock.getElapsedTime();
-      const assemble = easeOut(Math.min(1, t / 2)); // 初始散开→聚合
+      // 初始散开→聚合（拼接一次），随后漂浮
+      const g = reduced ? 1 : easeOut(Math.min(1, t / 1.5));
       const arr = geom.getAttribute("position").array as Float32Array;
       const radius = 40;
       for (let i = 0; i < count; i++) {
         const i3 = i * 3;
         const ph = phases[i] ?? 0;
         const sp = speeds[i] ?? 0.7;
-        // 周期性打散→重组（带逐粒相位形成波纹）
-        const wave = (Math.sin(t * 0.8 + ph * 0.25) + 1) / 2;
-        const g = reduced ? 1 : assemble * (0.6 + 0.4 * wave);
-        let x = scatter[i3] + (target[i3] - scatter[i3]) * g;
-        let y = scatter[i3 + 1] + (target[i3 + 1] - scatter[i3 + 1]) * g;
-        let z = scatter[i3 + 2] + (target[i3 + 2] - scatter[i3 + 2]) * g;
-        // 漂浮
-        x += Math.sin(t * sp + ph) * 0.8;
-        y += Math.cos(t * sp * 0.9 + ph * 1.6) * 0.9;
-        // 鼠标推开
+        let x = scatter[i3] + (target[i3] - scatter[i3]) * g + Math.sin(t * sp + ph) * 0.7;
+        let y = scatter[i3 + 1] + (target[i3 + 1] - scatter[i3 + 1]) * g + Math.cos(t * sp * 0.9 + ph * 1.6) * 0.8;
+        const z = scatter[i3 + 2] + (target[i3 + 2] - scatter[i3 + 2]) * g + Math.sin(t * 0.6 + ph) * 1.2;
         if (!reduced && pointer.active) {
           const dx = x - pointer.x;
           const dy = y - pointer.y;
           const distance = Math.sqrt(dx * dx + dy * dy);
           if (distance < radius && distance > 0.01) {
-            const force = ((radius - distance) / radius) ** 2 * 18;
+            const force = ((radius - distance) / radius) ** 2 * 16;
             x += (dx / distance) * force;
             y += (dy / distance) * force;
           }
