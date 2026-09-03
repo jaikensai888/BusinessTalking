@@ -5,6 +5,7 @@ import { buildModel } from "@/lib/llm/providers";
 import { normalizeProvider } from "@/lib/llm/constants";
 import { decrypt } from "@/lib/settings/encryption";
 import { getSetting } from "@/lib/settings/store";
+import { llmTimeoutMs } from "@/lib/llm/timeout";
 
 const encoder = new TextEncoder();
 
@@ -78,7 +79,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/v1/personas/[id
         ...history.map((m) => ({ role: m.role, content: m.content })),
         { role: "user" as const, content: message },
       ],
-      abortSignal: AbortSignal.timeout(Math.min(Number(timeoutRaw ?? 120) * 1000, 120000)),
+      abortSignal: AbortSignal.timeout(llmTimeoutMs(timeoutRaw)),
     });
 
     const stream = new ReadableStream<Uint8Array>({

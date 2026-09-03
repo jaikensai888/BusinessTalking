@@ -4,6 +4,7 @@ import { buildModel } from "@/lib/llm/providers";
 import { normalizeProvider } from "@/lib/llm/constants";
 import { decrypt } from "@/lib/settings/encryption";
 import { getSetting } from "@/lib/settings/store";
+import { llmTimeoutMs } from "@/lib/llm/timeout";
 
 /** POST /api/v1/settings/test — 用当前配置（provider + baseUrl + 默认模型）发最小请求验证 */
 export async function POST() {
@@ -25,7 +26,7 @@ export async function POST() {
   const t0 = Date.now();
   try {
     const modelObj = buildModel(provider, apiKey, model, baseUrl || undefined);
-    const timeoutMs = Math.min(Number(timeoutRaw ?? 120) * 1000, 120000);
+    const timeoutMs = llmTimeoutMs(timeoutRaw);
     await generateText({
       model: modelObj,
       prompt: "Reply with exactly: OK",

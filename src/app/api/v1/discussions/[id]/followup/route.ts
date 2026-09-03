@@ -5,6 +5,7 @@ import { buildModel } from "@/lib/llm/providers";
 import { normalizeProvider } from "@/lib/llm/constants";
 import { decrypt } from "@/lib/settings/encryption";
 import { getSetting } from "@/lib/settings/store";
+import { llmTimeoutMs } from "@/lib/llm/timeout";
 import { loadSkill } from "@/lib/discussion/runner";
 
 const encoder = new TextEncoder();
@@ -81,7 +82,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/v1/discussions/
       model: modelObj,
       system: sys,
       messages: [...history.slice(-12), { role: "user" as const, content: message }],
-      abortSignal: AbortSignal.timeout(Math.min(Number(timeoutRaw ?? 120) * 1000, 120000)),
+      abortSignal: AbortSignal.timeout(llmTimeoutMs(timeoutRaw)),
     });
 
     const stream = new ReadableStream<Uint8Array>({

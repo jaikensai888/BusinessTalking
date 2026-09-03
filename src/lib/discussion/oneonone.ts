@@ -5,6 +5,7 @@ import { buildModel } from "@/lib/llm/providers";
 import { normalizeProvider } from "@/lib/llm/constants";
 import { decrypt } from "@/lib/settings/encryption";
 import { getSetting } from "@/lib/settings/store";
+import { llmTimeoutMs } from "@/lib/llm/timeout";
 import { loadSkill } from "./runner";
 import { searchWeb } from "@/lib/search/web";
 
@@ -72,7 +73,7 @@ export async function replyOneOnOne(
       messages: [...history, { role: "user" as const, content: question }],
       tools: { web_search: webSearchTool },
       stopWhen: isStepCount(6),
-      abortSignal: AbortSignal.timeout(Math.min(Number(timeoutRaw ?? 120) * 1000, 120000)),
+      abortSignal: AbortSignal.timeout(llmTimeoutMs(timeoutRaw)),
     });
     return text.trim() || "（无回应）";
   } catch (e) {

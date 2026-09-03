@@ -5,6 +5,7 @@ import { buildModel } from "@/lib/llm/providers";
 import { normalizeProvider } from "@/lib/llm/constants";
 import { decrypt } from "@/lib/settings/encryption";
 import { getSetting } from "@/lib/settings/store";
+import { llmTimeoutMs } from "@/lib/llm/timeout";
 import { buildStepSystem, buildStepUser } from "./prompt";
 import { extractJson, validateOutput } from "./schemas";
 
@@ -124,7 +125,7 @@ export async function runRecipe(runId: string) {
             step.persona
           ),
           prompt: buildStepUser(run.ideaInput, previous),
-          abortSignal: AbortSignal.timeout(Math.min(Number(timeoutRaw ?? 120) * 1000, 120000)),
+          abortSignal: AbortSignal.timeout(llmTimeoutMs(timeoutRaw)),
         });
 
         let output: unknown = text;

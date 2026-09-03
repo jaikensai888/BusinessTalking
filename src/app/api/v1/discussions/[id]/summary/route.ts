@@ -5,6 +5,7 @@ import { buildModel } from "@/lib/llm/providers";
 import { normalizeProvider } from "@/lib/llm/constants";
 import { decrypt } from "@/lib/settings/encryption";
 import { getSetting } from "@/lib/settings/store";
+import { llmTimeoutMs } from "@/lib/llm/timeout";
 import { saveReport } from "@/lib/discussion/report";
 
 /** POST /api/v1/discussions/:id/summary — 生成综合建议并汇总成一份报告（保存为 md 产物） */
@@ -42,7 +43,7 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/v1/discussions
       system:
         "你是一位资深商业顾问。综合多位专家在讨论中提出的观点，给出一份可执行、有优先级、有分歧说明的综合建议。建议包含：核心结论、关键论据、分歧点、下一步建议。",
       prompt: `【讨论要点】\n${d.summaryBox}\n\n请给出综合建议。`,
-      abortSignal: AbortSignal.timeout(Math.min(Number(timeoutRaw ?? 120) * 1000, 120000)),
+      abortSignal: AbortSignal.timeout(llmTimeoutMs(timeoutRaw)),
     });
     content = text.trim() || "（未能生成建议）";
   } catch (e) {
