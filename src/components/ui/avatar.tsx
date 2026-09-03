@@ -8,7 +8,7 @@ const SIZES = {
   xl: "h-20 w-20 text-[28px]",
 } as const;
 
-/** DESIGN.md 7.6 头像（精修）：正圆 + 白色描边 + 平铺纯色；无图时按名称生成 */
+/** DESIGN.md 7.6 头像（精修）：默认正圆；卡片主视觉可通过 className 覆盖为方形 */
 export function Avatar({
   src,
   name,
