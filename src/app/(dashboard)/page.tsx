@@ -15,6 +15,7 @@ import {
 import { Avatar } from "@/components/ui/avatar";
 import { SpacesCards } from "@/components/workspace/spaces-cards";
 import { FloatingAction } from "@/components/workspace/floating-action";
+import { ParticleWordmark } from "@/components/workspace/particle-wordmark";
 import { cn } from "@/lib/utils";
 
 interface RecipeOption {
@@ -298,7 +299,7 @@ export default function WorkspacePage() {
       <section className="relative z-30 mx-auto max-w-[1400px] px-6 pt-14 pb-2">
         <div className="fl-rise mx-auto flex max-w-2xl flex-col items-center gap-6">
           <div className="text-center">
-            <p className="text-[13px] font-medium tracking-[0.02em] text-primary/80">BusinessTalking</p>
+            <ParticleWordmark />
             <h1 className="mt-2 text-[30px] font-semibold leading-[1.15] tracking-[-0.4px] text-ink md:text-[34px]">
               {greet()}，分析官！
             </h1>
