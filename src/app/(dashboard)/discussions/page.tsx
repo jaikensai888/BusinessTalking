@@ -11,7 +11,7 @@ import { CopyId } from "@/components/ui/copy-id";
 import { Markdown } from "@/components/ui/markdown";
 
 interface PersonaOption { id: string; name: string; perspectiveType: string }
-interface Msg { id: string; sender: string; role: string; turn: number; content: string; createdAt: string }
+interface Msg { id: string; sender: string; role: string; turn: number; content: string; createdAt: string; streaming?: boolean }
 interface Artifact { id: string; title: string; type: string; filePath?: string | null; summary?: string | null; content: string; createdAt: string }
 interface Discussion {
   id: string;
@@ -58,6 +58,7 @@ export default function DiscussionsPage() {
   const [sending, setSending] = useState(false);
   const [summarizing, setSummarizing] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const streamAbortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const steerRef = useRef<HTMLInputElement | null>(null);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
@@ -66,6 +67,7 @@ export default function DiscussionsPage() {
   const [attachment, setAttachment] = useState<{ filename: string; charCount: number; truncated: boolean } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [followUp, setFollowUp] = useState<{ personaId: string; name: string } | null>(null);
 
   useEffect(() => {
     fetch("/api/v1/personas?page_size=100")
@@ -141,10 +143,14 @@ export default function DiscussionsPage() {
     }
   };
 
-  function startPolling(id: string) {
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(() => void load(id), 2500);
-    void load(id);
+  // 停止所有实时通道（SSE + 轮询兜底）
+  function stopLive() {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+    streamAbortRef.current?.abort();
+    streamAbortRef.current = null;
   }
 
   const load = async (id: string) => {
@@ -153,37 +159,193 @@ export default function DiscussionsPage() {
       const d = await res.json();
       if (d.code === 0) {
         setCurrent(d.data);
-        // 单人讨论由用户提问即时驱动，无后台自动推进；加载后即可停止轮询
-        if (d.data.status === "done" || d.data.status === "failed" || (d.data.personas?.length ?? 0) === 1) {
-          if (pollRef.current) clearInterval(pollRef.current);
-          pollRef.current = null;
-        }
+        // 只在"生成中"(pending/running)时保持实时通道；单人生成完置 ready、多人结束 done/failed 即停
+        const active = d.data.status === "pending" || d.data.status === "running";
+        if (!active) stopLive();
       }
     } catch {
       /* ignore */
     }
   };
 
+  // 轮询兜底：若 SSE 意外断开则退回 2.5s 轮询
+  function startPolling(id: string) {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(() => void load(id), 2500);
+    void load(id);
+  }
+
+  // 用 SSE 实时订阅讨论进展：每次后端 publish 就收到 {type:"change"}，回源拉取最新状态；
+  // SSE 断开（非我们主动关闭）时自动退回轮询兜底。
+  function connectLive(id: string) {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+    streamAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    streamAbortRef.current = ctrl;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/v1/discussions/${id}/stream`, { signal: ctrl.signal });
+        if (!res.ok || !res.body) throw new Error("stream unavailable");
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let idx: number;
+          while ((idx = buffer.indexOf("\n\n")) >= 0) {
+            const frame = buffer.slice(0, idx);
+            buffer = buffer.slice(idx + 2);
+            const line = frame.split("\n").find((l) => l.startsWith("data:"));
+            if (!line) continue;
+            const payload = line.slice(5).trim();
+            if (!payload) continue;
+            let evt: { type?: string };
+            try {
+              evt = JSON.parse(payload);
+            } catch {
+              continue;
+            }
+            if (evt.type === "change") void load(id);
+          }
+        }
+      } catch {
+        /* 连接被主动 abort 或异常 */
+      } finally {
+        // 非我们主动关闭且仍是当前这条连接：退回轮询兜底
+        if (!ctrl.signal.aborted && streamAbortRef.current === ctrl) {
+          streamAbortRef.current = null;
+          startPolling(id);
+        }
+      }
+    })();
+  }
+
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [current?.messages.length]);
 
-  // 从工作台会话空间卡片进入：加载已有讨论线程
+  // 从工作台会话空间卡片进入：加载已有讨论线程，并实时订阅进展
   useEffect(() => {
     if (viewId) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setCurrent({ id: viewId, brief: "", rounds: 5, status: "pending", personas: [], messages: [] });
-      startPolling(viewId);
+      connectLive(viewId);
     }
+    return () => stopLive();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewId]);
 
   const sendSteer = async () => {
     if (!current || !steer.trim() || sending) return;
     const question = steer;
-    // 立即清空输入框，用户消息马上离开 input
+    const discussionId = current.id;
     setSteer("");
-    // 1 对 1：该请求要等专家即时作答（LLM 较慢），先乐观显示自己的提问，避免“发了没反应”
+
+    // 讨论结束后的单独追问：向某人格带上下文提问，SSE 逐字流式
+    if (followUp) {
+      const optimistic: Msg = {
+        id: `tmp-${Date.now()}`,
+        sender: "我",
+        role: "user",
+        turn: 0,
+        content: question,
+        createdAt: new Date().toISOString(),
+      };
+      const aiMsg: Msg = {
+        id: `tmp-ai-${Date.now()}`,
+        sender: followUp.name,
+        role: "persona",
+        turn: 0,
+        content: "",
+        createdAt: new Date().toISOString(),
+        streaming: true,
+      };
+      setCurrent((prev) => (prev ? { ...prev, messages: [...prev.messages, optimistic, aiMsg] } : prev));
+      setSending(true);
+      setError(null);
+      // 用「最后一条」定位流式中的助手气泡（引用会被替换，不能靠对象相等）
+      const patchLast = (fn: (m: Msg) => Msg) =>
+        setCurrent((prev) => {
+          if (!prev || prev.messages.length === 0) return prev;
+          const messages = [...prev.messages];
+          messages[messages.length - 1] = fn(messages[messages.length - 1]);
+          return { ...prev, messages };
+        });
+      const removeLast = () =>
+        setCurrent((prev) =>
+          prev ? { ...prev, messages: prev.messages.slice(0, Math.max(0, prev.messages.length - 1)) } : prev
+        );
+      try {
+        const res = await fetch(`/api/v1/discussions/${discussionId}/followup`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ personaId: followUp.personaId, message: question }),
+        });
+        const ct = res.headers.get("content-type") ?? "";
+        if (!ct.includes("text/event-stream")) {
+          let msgText = "追问失败";
+          try {
+            const dj = await res.json();
+            if (dj.code !== 0) msgText = dj.message ?? msgText;
+          } catch {
+            /* 忽略 */
+          }
+          setError(msgText);
+          setCurrent((prev) => (prev ? { ...prev, messages: prev.messages.slice(0, Math.max(0, prev.messages.length - 2)) } : prev));
+          return;
+        }
+        const reader = res.body!.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let full = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let idx: number;
+          while ((idx = buffer.indexOf("\n\n")) >= 0) {
+            const frame = buffer.slice(0, idx);
+            buffer = buffer.slice(idx + 2);
+            const line = frame.split("\n").find((l) => l.startsWith("data:"));
+            if (!line) continue;
+            const payload = line.slice(5).trim();
+            if (!payload) continue;
+            let evt: { type?: string; text?: string; message?: string };
+            try {
+              evt = JSON.parse(payload);
+            } catch {
+              continue;
+            }
+            if (evt.type === "delta") {
+              full += evt.text ?? "";
+              patchLast((m) => ({ ...m, content: full }));
+            } else if (evt.type === "done") {
+              patchLast((m) => ({ ...m, content: full, streaming: false }));
+            } else if (evt.type === "error") {
+              setError(evt.message ?? "追问失败");
+              removeLast();
+            }
+          }
+        }
+        setFollowUp(null);
+        // 与库同步，拿到带真实 id 的消息（覆盖刚才的临时乐观消息，无重复）
+        void load(discussionId);
+      } catch {
+        setError("追问失败");
+        removeLast();
+      } finally {
+        setSending(false);
+      }
+      return;
+    }
+
+    // 原有路径：1 对 1 / 多人插话
+    // 1 对 1：专家在后台异步作答，先乐观显示自己的提问，避免“发了没反应”；轮询会带回「正在思考」与最终答复
     if (isOne) {
       const optimistic: Msg = {
         id: `tmp-${Date.now()}`,
@@ -198,14 +360,14 @@ export default function DiscussionsPage() {
     setSending(true);
     setError(null);
     try {
-      const res = await fetch(`/api/v1/discussions/${current.id}/steer`, {
+      const res = await fetch(`/api/v1/discussions/${discussionId}/steer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: question }),
       });
       const d = await res.json();
       if (d.code === 0) {
-        void load(current.id);
+        connectLive(discussionId);
       } else setError(d.message ?? (isOne ? "发送失败" : "插话失败"));
     } finally {
       setSending(false);
@@ -268,7 +430,10 @@ export default function DiscussionsPage() {
   };
 
   const running = current && (current.status === "running" || current.status === "pending");
+  const thinking = current?.status === "running";
   const isOne = (current?.personas?.length ?? 0) === 1;
+  // 讨论未在进行中时，才能向某个人格「追问」（避免被实时推送的 load 覆盖流式气泡）
+  const canFollowUp = !!current && !running && (current.status === "done" || current.status === "failed");
   const personaNames = new Set((current?.personas ?? []).map((p) => p.name));
 
   return (
@@ -445,6 +610,9 @@ export default function DiscussionsPage() {
                               <Markdown names={personaNames} tone={isUser ? "dark" : "light"}>
                                 {m.content}
                               </Markdown>
+                              {m.streaming && (
+                                <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-ink-60 align-middle" />
+                              )}
                             </div>
                           </div>
                         </div>
@@ -452,14 +620,14 @@ export default function DiscussionsPage() {
                     );
                   })
                 )}
-                {running && (
+                {!isOne && running && (
                   <div className="flex items-center gap-2 py-1 text-[12px] text-ink-40">
-                    <PaperPlaneTilt size={14} className="animate-pulse" /> 专家们正在发言…
+                    <PaperPlaneTilt size={14} className="animate-pulse" /> 讨论中…
                   </div>
                 )}
-                {isOne && sending && (
+                {isOne && thinking && (
                   <div className="flex items-center gap-2 py-1 text-[12px] text-ink-40">
-                    <ChatCircleDots size={14} className="animate-pulse" /> {current.personas?.[0]?.name ?? "专家"} 正在回复…
+                    <ChatCircleDots size={14} className="animate-pulse" /> {current.personas?.[0]?.name ?? "专家"} 正在思考…
                   </div>
                 )}
               </div>
@@ -495,11 +663,18 @@ export default function DiscussionsPage() {
                       value={steer}
                       onChange={handleSteerChange}
                       placeholder={
-                        isOne
+                        followUp
+                          ? `向 ${followUp.name} 追问（带上这场讨论）…`
+                          : isOne
                           ? `向 ${current.personas?.[0]?.name ?? "专家"} 提问…`
                           : "插一句，用 @ 点名：「@乔布斯 如果成本砍半呢？」"
                       }
                       onKeyDown={(e) => {
+                        if (followUp) {
+                          if (e.key === "Escape") { setFollowUp(null); e.preventDefault(); return; }
+                          if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendSteer(); }
+                          return;
+                        }
                         if (!isOne && mentionQuery !== null && mentionOptions.length > 0) {
                           if (e.key === "Escape") { setMentionQuery(null); e.preventDefault(); return; }
                           if (e.key === "Enter") { e.preventDefault(); insertMention(mentionOptions[0].name); return; }
@@ -559,9 +734,9 @@ export default function DiscussionsPage() {
                       />
                       {current.status === "done" && "已结束"}
                       {current.status === "failed" && "失败"}
-                      {running && "讨论中…"}
-                      {isOne && "一对一交流"}
-                      {!isOne && `${current.rounds} 轮`}
+                      {running && !isOne && "讨论中"}
+                      {isOne && (running ? "正在思考" : "一对一交流")}
+                      {!isOne && !running && `${current.rounds} 轮`}
                     </span>
                     <CopyId id={current.shortId} />
                   </div>
@@ -584,6 +759,23 @@ export default function DiscussionsPage() {
                         <div className="truncate text-[13px] font-medium text-ink">{p.name}</div>
                         <div className="text-[11px] text-ink-40">{TYPE_LABEL[p.perspectiveType] ?? p.perspectiveType}</div>
                       </div>
+                      {canFollowUp && (
+                        <button
+                          onClick={() => {
+                            setFollowUp({ personaId: p.id, name: p.name });
+                            setMentionQuery(null);
+                            steerRef.current?.focus();
+                          }}
+                          className={cn(
+                            "ml-auto shrink-0 rounded-full px-2.5 py-1 text-[11px] transition-colors",
+                            followUp?.personaId === p.id
+                              ? "bg-primary text-white"
+                              : "border border-hairline text-ink-60 hover:border-primary/40 hover:text-primary"
+                          )}
+                        >
+                          {followUp?.personaId === p.id ? "追问中…" : "追问"}
+                        </button>
+                      )}
                     </div>
                   ))}
                   <div className="flex items-center gap-2.5 rounded-lg px-3 py-2 hover:bg-parchment/70">

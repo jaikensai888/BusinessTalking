@@ -3,13 +3,13 @@
 import { type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-function inline(text: string, names?: Set<string>): ReactNode[] {
+function inline(text: string, names?: Set<string>, seed = 0): ReactNode[] {
   const out: ReactNode[] = [];
   // 依次处理 **bold**、*italic*、`code`、[link](url)、@人名
   const regex =
     /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\[[^\]]+\]\([^)]+\)|@([\p{L}\p{N}\u4e00-\u9fff_\-·]+))/gu;
   let last = 0;
-  let key = 0;
+  let key = seed;
   let m: RegExpExecArray | null;
   while ((m = regex.exec(text))) {
     if (last < m.index) out.push(text.slice(last, m.index));
@@ -145,7 +145,7 @@ export function Markdown({
       );
       continue;
     }
-    para.push(...inline(raw, names));
+    para.push(...inline(raw, names, para.length));
     para.push(<br key={para.length} />);
   }
   flushPara();

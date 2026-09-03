@@ -8,6 +8,7 @@ import { normalizeProvider } from "@/lib/llm/constants";
 import { decrypt } from "@/lib/settings/encryption";
 import { getSetting } from "@/lib/settings/store";
 import { searchWeb } from "@/lib/search/web";
+import { publish } from "./broadcast";
 
 /** 联网检索工具（keyless）：供人设查证竞品/参数/市场事实 */
 const webSearchTool = tool({
@@ -97,6 +98,7 @@ export async function runDiscussion(id: string) {
   }
 
   await prisma.discussion.update({ where: { id }, data: { status: "running" } });
+  publish(id, { type: "change" });
 
   const buffers = new Map<string, { role: string; content: string }[]>();
   let summaryBox = d.summaryBox ?? d.brief;
@@ -142,13 +144,16 @@ export async function runDiscussion(id: string) {
         await prisma.discussionMessage.create({
           data: { discussionId: id, personaId: persona.id, sender: persona.name, role: "persona", turn: round, content },
         });
+        publish(id, { type: "change" });
         buffers.set(persona.id, [...history, { role: "assistant", content }]);
         summaryBox = (summaryBox + `\n- ${persona.name}：${content.slice(0, 120)}`).slice(-SUMMARY_LIMIT);
         await prisma.discussion.update({ where: { id }, data: { summaryBox } });
       }
     }
     await prisma.discussion.update({ where: { id }, data: { status: "done" } });
+    publish(id, { type: "change" });
   } catch (e) {
     await prisma.discussion.update({ where: { id }, data: { status: "failed" } });
+    publish(id, { type: "change" });
   }
 }

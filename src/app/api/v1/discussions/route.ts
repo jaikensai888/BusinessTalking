@@ -3,6 +3,7 @@ import { err, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { runDiscussion } from "@/lib/discussion/runner";
 import { replyOneOnOne } from "@/lib/discussion/oneonone";
+import { publish } from "@/lib/discussion/broadcast";
 import { genShortId } from "@/lib/short-id";
 
 /** POST /api/v1/discussions — 创建多人讨论（异步推进）；message = 用户首条提问 */
@@ -65,27 +66,53 @@ export async function POST(req: Request) {
   });
 
   // 把用户在输入框里的提问作为第一条消息带进讨论，人设可据此作答
-  if (message) {
+  const hasFirstMessage = Boolean(message);
+  if (hasFirstMessage) {
     await prisma.discussionMessage.create({
       data: { discussionId: d.id, role: "user", sender: "你", turn: 0, content: message },
     });
-    // 单人：立即由该人设作答（你问了，它就回答）
+    // 单人：异步由该人设作答——先把状态置为"生成中"并立刻返回，让前端马上进入讨论页显示「正在思考」
     if (isOneOnOne) {
       const persona = await prisma.persona.findUnique({
         where: { id: personaIds[0] },
         select: { name: true },
       });
-      const reply = await replyOneOnOne(d.id, personaIds[0], message);
-      await prisma.discussionMessage.create({
-        data: {
-          discussionId: d.id,
-          personaId: personaIds[0],
-          sender: persona?.name ?? "专家",
-          role: "persona",
-          turn: 0,
-          content: reply,
-        },
-      });
+      await prisma.discussion.update({ where: { id: d.id }, data: { status: "running" } });
+      publish(d.id, { type: "change" });
+      void (async () => {
+        try {
+          const reply = await replyOneOnOne(d.id, personaIds[0], message);
+          await prisma.discussionMessage.create({
+            data: {
+              discussionId: d.id,
+              personaId: personaIds[0],
+              sender: persona?.name ?? "专家",
+              role: "persona",
+              turn: 0,
+              content: reply,
+            },
+          });
+          publish(d.id, { type: "change" });
+        } catch (e) {
+          await prisma.discussionMessage
+            .create({
+              data: {
+                discussionId: d.id,
+                personaId: personaIds[0],
+                sender: persona?.name ?? "专家",
+                role: "persona",
+                turn: 0,
+                content: `（回答失败：${e instanceof Error ? e.message : String(e)}）`,
+              },
+            })
+            .catch(() => undefined);
+        } finally {
+          await prisma.discussion
+            .update({ where: { id: d.id }, data: { status: "ready" } })
+            .catch(() => undefined);
+          publish(d.id, { type: "change" });
+        }
+      })();
     }
   }
 
@@ -94,7 +121,7 @@ export async function POST(req: Request) {
   return ok({
     id: d.id,
     shortId,
-    status: d.status,
+    status: isOneOnOne && hasFirstMessage ? "running" : d.status,
     mode: isOneOnOne ? "1on1" : "group",
     rounds: d.rounds,
     attachmentName,

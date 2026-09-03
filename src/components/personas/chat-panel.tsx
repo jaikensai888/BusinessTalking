@@ -10,6 +10,8 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   createdAt?: string;
+  /** 正在流式生成中的占位（用于结尾打字光标） */
+  streaming?: boolean;
 }
 interface Conversation {
   id: string;
@@ -53,23 +55,79 @@ export function ChatPanel({ personaId, personaName }: { personaId: string; perso
     if (!message || sending) return;
     setSending(true);
     setError(null);
+    // 乐观显示：用户提问 + 一个空的、流式中的助手占位，让用户立刻看到"正在回"
+    const userMsg: Message = { role: "user", content: message, createdAt: new Date().toISOString() };
+    const aiMsg: Message = { role: "assistant", content: "", createdAt: new Date().toISOString(), streaming: true };
+    setMessages((prev) => [...prev, userMsg, aiMsg]);
+    setInput("");
+    const convId = activeId;
+    // 流式过程中用「最后一条」定位助手气泡（引用会被替换，不能靠 m === aiMsg）
+    const patchLast = (fn: (m: Message) => Message) =>
+      setMessages((prev) => {
+        if (prev.length === 0) return prev;
+        const next = [...prev];
+        next[next.length - 1] = fn(next[next.length - 1]);
+        return next;
+      });
+    const removeLast = () => setMessages((prev) => prev.slice(0, Math.max(0, prev.length - 1)));
     try {
       const res = await fetch(`/api/v1/personas/${personaId}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, conversationId: activeId ?? undefined }),
+        body: JSON.stringify({ message, conversationId: convId ?? undefined }),
       });
-      const d = await res.json();
-      if (d.code !== 0) {
-        setError(d.message ?? "发送失败");
+      const contentType = res.headers.get("content-type") ?? "";
+      // 非流式响应（如校验/鉴权失败返回 JSON err）：常规报错并回滚两条乐观消息
+      if (!contentType.includes("text/event-stream")) {
+        let msgText = "发送失败";
+        try {
+          const d = await res.json();
+          if (d.code !== 0) msgText = d.message ?? msgText;
+        } catch {
+          /* 忽略 */
+        }
+        setError(msgText);
+        setMessages((prev) => prev.slice(0, Math.max(0, prev.length - 2)));
         return;
       }
-      setActiveId(d.data.conversationId);
-      setMessages((prev) => [...(activeId === d.data.conversationId ? prev : []), ...d.data.messages]);
-      setInput("");
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let full = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        // SSE 帧以空行分隔；用 \n\n 划分，保留尾部不完整帧
+        const frames = buffer.split("\n\n");
+        buffer = frames.pop() ?? "";
+        for (const frame of frames) {
+          const dataLine = frame.split("\n").find((l) => l.startsWith("data:"));
+          if (!dataLine) continue;
+          const payload = dataLine.slice(5).trim();
+          if (!payload) continue;
+          let evt: { type?: string; text?: string; conversationId?: string; message?: string };
+          try {
+            evt = JSON.parse(payload);
+          } catch {
+            continue;
+          }
+          if (evt.type === "delta") {
+            full += evt.text ?? "";
+            patchLast((m) => ({ ...m, content: full }));
+          } else if (evt.type === "done") {
+            setActiveId(evt.conversationId ?? convId);
+            patchLast((m) => ({ ...m, content: full, streaming: false }));
+          } else if (evt.type === "error") {
+            setError(evt.message ?? "发送失败");
+            removeLast();
+          }
+        }
+      }
       loadConversations();
     } catch {
       setError("发送失败");
+      removeLast();
     } finally {
       setSending(false);
     }
@@ -181,6 +239,9 @@ export function ChatPanel({ personaId, personaName }: { personaId: string; perso
                       )}
                     >
                       {m.content}
+                      {m.streaming && (
+                        <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-ink-60 align-middle" />
+                      )}
                     </div>
                   </div>
                 </div>
