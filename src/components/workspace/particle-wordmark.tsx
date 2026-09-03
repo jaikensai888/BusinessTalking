@@ -5,7 +5,7 @@ import * as THREE from "three";
 
 const WORDMARK = "BusinessTalking";
 const MAX_DEVICE_PIXEL_RATIO = 2;
-const SAMPLE_STEP = 1;
+const SAMPLE_STEP = 3; // 点阵网格单元（每个方块像素边长）
 
 /**
  * BusinessTalking 标题的三维粒子字标（three.js）：
@@ -26,18 +26,14 @@ export function ParticleWordmark() {
     let disposed = false;
     const clock = new THREE.Clock();
 
-    // 柔和圆形粒子贴图（发光）
+    // 正方形粒子贴图（点阵/像素屏风格，带轻微柔边）
     const makeSprite = () => {
-      const s = 64;
+      const s = 16;
       const cv = document.createElement("canvas");
       cv.width = cv.height = s;
       const c = cv.getContext("2d")!;
-      const g = c.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
-      g.addColorStop(0, "rgba(255,255,255,1)");
-      g.addColorStop(0.32, "rgba(255,255,255,0.9)");
-      g.addColorStop(1, "rgba(255,255,255,0)");
-      c.fillStyle = g;
-      c.fillRect(0, 0, s, s);
+      c.fillStyle = "rgba(255,255,255,1)";
+      c.fillRect(1, 1, s - 2, s - 2); // 白色方块，四周留 1px 柔边
       const tex = new THREE.CanvasTexture(cv);
       tex.needsUpdate = true;
       return tex;
@@ -88,10 +84,19 @@ export function ParticleWordmark() {
       c.fillText(WORDMARK, W / 2, H / 2 + 1);
       const img = c.getImageData(0, 0, W, H);
       const px = img.data;
+      // 点阵采样：整个网格单元覆盖就放一个方块点（做成像素/点阵字体）
       const pts: number[] = [];
-      for (let y = 0; y < H; y += SAMPLE_STEP) {
-        for (let x = 0; x < W; x += SAMPLE_STEP) {
-          if (px[(y * W + x) * 4 + 3] > 150) pts.push(x - W / 2, H / 2 - y, 0);
+      for (let gy = 0; gy < H; gy += SAMPLE_STEP) {
+        for (let gx = 0; gx < W; gx += SAMPLE_STEP) {
+          let hit = false;
+          for (let sy = 0; sy < SAMPLE_STEP && !hit; sy++) {
+            for (let sx = 0; sx < SAMPLE_STEP && !hit; sx++) {
+              const x = gx + sx;
+              const y = gy + sy;
+              if (x < W && y < H && px[(y * W + x) * 4 + 3] > 150) hit = true;
+            }
+          }
+          if (hit) pts.push(gx + SAMPLE_STEP / 2 - W / 2, H / 2 - (gy + SAMPLE_STEP / 2), 0);
         }
       }
       count = pts.length / 3;
@@ -118,7 +123,7 @@ export function ParticleWordmark() {
       geom.setAttribute("position", new THREE.BufferAttribute(curPos, 3));
       sprite = sprite || makeSprite();
       mat = new THREE.PointsMaterial({
-        size: SAMPLE_STEP * 2.2,
+        size: SAMPLE_STEP * 0.8, // 方块占网格的约 80%，留出点阵间隙
         map: sprite,
         color: 0x1476ff,
         transparent: true,
