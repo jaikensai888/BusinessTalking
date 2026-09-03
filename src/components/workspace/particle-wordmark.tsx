@@ -5,7 +5,7 @@ import * as THREE from "three";
 
 const WORDMARK = "BusinessTalking";
 const MAX_DEVICE_PIXEL_RATIO = 2;
-const SAMPLE_STEP = 3; // 点阵网格单元（每个方块像素边长）
+const SAMPLE_STEP = 2; // 点阵网格单元（每个方块像素边长，越小越细、越清晰）
 
 /**
  * BusinessTalking 标题的三维粒子字标（three.js）：
@@ -77,7 +77,7 @@ export function ParticleWordmark() {
       const c = off.getContext("2d", { willReadFrequently: true })!;
       c.clearRect(0, 0, W, H);
       c.fillStyle = "#fff";
-      const fontSize = Math.min(26, Math.max(18, W * 0.08));
+      const fontSize = Math.min(46, Math.max(30, W * 0.1)); // 至少大于下方 30/34px 标题
       c.font = `600 ${fontSize}px system-ui, -apple-system, "Segoe UI", sans-serif`;
       c.textAlign = "center";
       c.textBaseline = "middle";
@@ -234,7 +234,7 @@ export function ParticleWordmark() {
   }, []);
 
   return (
-    <div ref={wrapRef} className="relative h-14 w-[340px]" role="img" aria-label={WORDMARK}>
+    <div ref={wrapRef} className="relative h-[72px] w-[440px]" role="img" aria-label={WORDMARK}>
       <canvas ref={canvasRef} className="h-full w-full" aria-hidden="true" />
       <span className="sr-only">{WORDMARK}</span>
     </div>
