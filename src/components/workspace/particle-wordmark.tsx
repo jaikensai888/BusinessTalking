@@ -77,7 +77,7 @@ export function ParticleWordmark() {
       const c = off.getContext("2d", { willReadFrequently: true })!;
       c.clearRect(0, 0, W, H);
       c.fillStyle = "#fff";
-      const fontSize = Math.min(46, Math.max(30, W * 0.1)); // 至少大于下方 30/34px 标题
+      const fontSize = Math.min(72, Math.max(44, W * 0.105)); // 题头级：填满容器宽度
       c.font = `600 ${fontSize}px system-ui, -apple-system, "Segoe UI", sans-serif`;
       c.textAlign = "center";
       c.textBaseline = "middle";
@@ -234,7 +234,7 @@ export function ParticleWordmark() {
   }, []);
 
   return (
-    <div ref={wrapRef} className="relative h-[72px] w-[440px]" role="img" aria-label={WORDMARK}>
+    <div ref={wrapRef} className="relative mx-auto h-[110px] w-[620px] max-w-[94vw]" role="img" aria-label={WORDMARK}>
       <canvas ref={canvasRef} className="h-full w-full" aria-hidden="true" />
       <span className="sr-only">{WORDMARK}</span>
     </div>
