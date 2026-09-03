@@ -43,6 +43,7 @@ export function SpacesCards({
   selectionMode = false,
   selectedKeys,
   onToggleSelect,
+  query = "",
 }: {
   refreshKey: number;
   onNew?: () => void;
@@ -51,6 +52,7 @@ export function SpacesCards({
   selectionMode?: boolean;
   selectedKeys?: Set<string>;
   onToggleSelect?: (key: string) => void;
+  query?: string;
 }) {
   const router = useRouter();
   const [spaces, setSpaces] = useState<Space[]>([]);
@@ -90,7 +92,7 @@ export function SpacesCards({
       })) : [];
 
       const all = [...dSpaces, ...rSpaces].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
-      setSpaces(all.slice(0, maxItems));
+      setSpaces(all);
 
       const hasRunning = all.some((s) => s.status === "running" || s.status === "pending");
       if (hasRunning) {
@@ -113,6 +115,18 @@ export function SpacesCards({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey]);
+
+  // 客户端搜索过滤：匹配标题/摘要/类型/状态/附件/编号
+  const q = query.trim().toLowerCase();
+  const shown = q
+    ? spaces.filter((s) => {
+        const statusLabel = STATUS_META[s.status]?.label ?? "";
+        const typeLabel = s.type === "discussion" ? "讨论" : "分析";
+        return [s.title, s.preview, s.meta, s.attachmentName ?? "", s.shortId ?? "", statusLabel, typeLabel, s.status]
+          .some((v) => v && String(v).toLowerCase().includes(q));
+      })
+    : spaces;
+  const viewItems = shown.slice(0, maxItems);
 
   if (loading && spaces.length === 0) {
     return (
@@ -141,9 +155,18 @@ export function SpacesCards({
     );
   }
 
+  if (viewItems.length === 0) {
+    return (
+      <div className="flex w-full flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-hairline bg-pearl/40 px-8 py-14 text-center">
+        <p className="text-[15px] font-medium text-ink">没有匹配的会话</p>
+        <p className="text-[13px] text-ink-48">换个关键词，或清除搜索条件试试。</p>
+      </div>
+    );
+  }
+
   return (
     <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(250px,1fr))]">
-      {spaces.map((s, i) => {
+      {viewItems.map((s, i) => {
         const meta = STATUS_META[s.status] ?? STATUS_META.pending;
         const IconComponent = meta.icon;
         const isDisc = s.type === "discussion";

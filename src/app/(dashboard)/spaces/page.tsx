@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChatCircleDots, Trash, X } from "@phosphor-icons/react";
+import { ChatCircleDots, MagnifyingGlass, Trash, X } from "@phosphor-icons/react";
 import { SpacesCards } from "@/components/workspace/spaces-cards";
 
 /** 会话空间：所有讨论 + 分析运行都在这里，支持单删与批量删除 */
@@ -11,6 +11,7 @@ export default function SpacesPage() {
   const [deleting, setDeleting] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [query, setQuery] = useState("");
 
   const toggleSelect = (key: string) => {
     setSelected((prev) => {
@@ -101,6 +102,22 @@ export default function SpacesPage() {
 
       {error && <p className="mb-4 text-[14px] text-error">{error}</p>}
 
+      {/* 查询：按标题/摘要/类型/状态过滤 */}
+      <div className="mb-5 flex items-center gap-2 rounded-xl border border-hairline bg-white px-3 py-2.5 transition-all focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/10">
+        <MagnifyingGlass size={17} className="shrink-0 text-ink-40" weight="bold" />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="搜索标题 / 摘要 / 类型（讨论、分析）/ 状态 / 编号…"
+          className="flex-1 bg-transparent text-[14px] text-ink outline-none placeholder:text-ink-40"
+        />
+        {query && (
+          <button onClick={() => setQuery("")} aria-label="清除搜索" title="清除搜索" className="shrink-0 text-ink-40 transition-colors hover:text-ink">
+            <X size={15} />
+          </button>
+        )}
+      </div>
+
       <SpacesCards
         refreshKey={refreshKey}
         onDelete={selectionMode ? undefined : deleteOne}
@@ -108,6 +125,7 @@ export default function SpacesPage() {
         selectionMode={selectionMode}
         selectedKeys={selected}
         onToggleSelect={selectionMode ? toggleSelect : undefined}
+        query={query}
       />
 
       {deleting && <p className="mt-4 text-center text-[13px] text-ink-40">正在删除…</p>}
