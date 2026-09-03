@@ -81,7 +81,7 @@ export function ParticleWordmark() {
       const c = off.getContext("2d", { willReadFrequently: true })!;
       c.clearRect(0, 0, W, H);
       c.fillStyle = "#fff";
-      const fontSize = Math.min(21, Math.max(15, W * 0.08));
+      const fontSize = Math.min(26, Math.max(18, W * 0.08));
       c.font = `600 ${fontSize}px system-ui, -apple-system, "Segoe UI", sans-serif`;
       c.textAlign = "center";
       c.textBaseline = "middle";
@@ -118,7 +118,7 @@ export function ParticleWordmark() {
       geom.setAttribute("position", new THREE.BufferAttribute(curPos, 3));
       sprite = sprite || makeSprite();
       mat = new THREE.PointsMaterial({
-        size: SAMPLE_STEP * 1.9,
+        size: SAMPLE_STEP * 2.2,
         map: sprite,
         color: 0x1476ff,
         transparent: true,
@@ -159,7 +159,7 @@ export function ParticleWordmark() {
           tx += Math.sin(t * 0.7 + ph) * 0.5;
           ty += Math.cos(t * 0.9 + ph * 1.6) * 0.6;
         }
-        let tz = Math.sin(t * 0.55 + ph) * 0.5;
+        const tz = Math.sin(t * 0.55 + ph) * 0.5;
 
         // 鼠标推开
         if (!reduced && pointer.active) {
@@ -229,7 +229,7 @@ export function ParticleWordmark() {
   }, []);
 
   return (
-    <div ref={wrapRef} className="relative h-12 w-[280px]" role="img" aria-label={WORDMARK}>
+    <div ref={wrapRef} className="relative h-14 w-[340px]" role="img" aria-label={WORDMARK}>
       <canvas ref={canvasRef} className="h-full w-full" aria-hidden="true" />
       <span className="sr-only">{WORDMARK}</span>
     </div>
