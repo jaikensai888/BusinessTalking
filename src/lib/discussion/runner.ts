@@ -9,6 +9,7 @@ import { decrypt } from "@/lib/settings/encryption";
 import { getSetting } from "@/lib/settings/store";
 import { llmTimeoutMs } from "@/lib/llm/timeout";
 import { searchWeb } from "@/lib/search/web";
+import { listReferences, readRef } from "@/lib/persona-skill";
 import { publish } from "./broadcast";
 
 /** 联网检索工具（keyless）：供人设查证竞品/参数/市场事实 */
@@ -57,16 +58,61 @@ function splitSteers(steers: { content: string }[], personaName: string): { gene
   return { general: general.join("\n"), direct: direct.join("\n") };
 }
 
-/** 读取人物 skill（SKILL.md）作为完整人设；缺失则回退 systemPrompt */
+/** 技能缓存：同一 skillPath 的文件内容（SKILL.md + references）只读一次，进程内复用。
+ *  规避每轮/每次对话重复 readFileSync 并重复拼接大字符串。 */
+const skillCache = new Map<string, string>();
+
+/** 读取人物 skill（SKILL.md）作为完整人设；缺失则回退 systemPrompt。
+ *  同时把该 skill 目录下 references/ + examples/ 的参考文档（方法论文档 / 黄金范例 / 调研资料）拼进上下文。
+ *  否则人格只见蒸馏后的 SKILL.md，见不到带来源标注的调研与范例，方法论执行容易退化成语气表演。 */
 export function loadSkill(skillPath: string | null | undefined, fallback: string): string {
-  if (skillPath) {
-    try {
-      return fs.readFileSync(path.join(process.cwd(), skillPath), "utf8");
-    } catch {
-      /* fall back */
-    }
+  if (!skillPath) return fallback;
+
+  const cached = skillCache.get(skillPath);
+  if (cached !== undefined) return cached;
+
+  let out: string;
+  try {
+    out = fs.readFileSync(path.join(process.cwd(), skillPath), "utf8");
+  } catch {
+    skillCache.set(skillPath, fallback);
+    return fallback; // 读不到 SKILL.md 直接回退
   }
-  return fallback;
+
+  // 追加同目录参考文档（references/ + examples/ 中的 .md，不含 SKILL.md），让运行时拿到研究与范例
+  for (const r of listReferences(skillPath)) {
+    const body = readRef(skillPath, r.rel);
+    if (!body) continue;
+    out += `\n\n---\n\n## 参考文档：${r.name}\n\n${body}`;
+  }
+  skillCache.set(skillPath, out);
+  return out;
+}
+
+/** 取指定人格已写入讨论的"人格设定/参考资料"消息（role=skill）；无则 null。 */
+export function findSkillMessage(discussionId: string, personaId: string) {
+  return prisma.discussionMessage.findFirst({ where: { discussionId, role: "skill", personaId } });
+}
+
+/** 确保某人格的完整设定（SKILL.md + references）已作为一条消息写入讨论（首轮加载、历史承载）。
+ *  幂等：已存在则跳过；内容用 loadSkill 拼装（进程内缓存，只读盘一次）。 */
+export async function ensureSkillLoaded(
+  discussionId: string,
+  persona: { id: string; name: string; skillPath: string | null; systemPrompt: string }
+): Promise<void> {
+  const exists = await prisma.discussionMessage.findFirst({
+    where: { discussionId, role: "skill", personaId: persona.id },
+  });
+  if (exists) return;
+  const content = loadSkill(persona.skillPath, persona.systemPrompt);
+  await prisma.discussionMessage.create({
+    data: { discussionId, personaId: persona.id, sender: persona.name, role: "skill", turn: 0, content },
+  });
+}
+
+/** 把人格设定消息渲染成模型消息（role=user 的前置上下文，始终排在对话最前、不参与裁剪）。 */
+export function toSkillMessage(skill: { content: string }): { role: "user"; content: string } {
+  return { role: "user", content: `【人格设定与参考资料】\n${skill.content}` };
 }
 
 /**
@@ -104,6 +150,17 @@ export async function runDiscussion(id: string) {
   const buffers = new Map<string, { role: string; content: string }[]>();
   let summaryBox = d.summaryBox ?? d.brief;
 
+  // 首轮加载：为每个人格把"完整设定（SKILL.md + references）"作为一条消息写入讨论（历史承载）。
+  // 系统提示保持精简（人格身份 + 背景 + 指令 + 工具），不再每轮把大 references 塞进 system。
+  const skillMsgs = new Map<string, { content: string }>();
+  for (const persona of personas) {
+    await ensureSkillLoaded(id, persona);
+  }
+  const allSkills = await prisma.discussionMessage.findMany({ where: { discussionId: id, role: "skill" } });
+  for (const s of allSkills) {
+    if (s.personaId) skillMsgs.set(s.personaId, s);
+  }
+
   try {
     for (let round = 1; round <= d.rounds; round++) {
       for (const persona of personas) {
@@ -114,7 +171,7 @@ export async function runDiscussion(id: string) {
         const { general, direct } = splitSteers(steers, persona.name);
 
         const sys =
-          loadSkill(persona.skillPath, persona.systemPrompt) +
+          persona.systemPrompt +
           `\n\n【讨论背景】\n${d.brief}` +
           `\n\n【当前共识/要点】\n${summaryBox}` +
           (general ? `\n\n【用户此刻插话】\n${general}` : "") +
@@ -130,6 +187,7 @@ export async function runDiscussion(id: string) {
             model: modelObj,
             system: sys,
             messages: [
+              ...(skillMsgs.has(persona.id) ? [toSkillMessage(skillMsgs.get(persona.id)!)] : []),
               ...history.slice(-4).map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
               { role: "user" as const, content: history.length === 0 ? "开始讨论。" : "继续。" },
             ],

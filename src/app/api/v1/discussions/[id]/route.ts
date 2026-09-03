@@ -29,14 +29,16 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/v1/discussions/
     attachmentCharCount: d.attachmentCharCount,
     attachmentTruncated: d.attachmentTruncated,
     personas: personas.map((p) => ({ id: p.id, name: p.name, perspectiveType: p.perspectiveType })),
-    messages: d.messages.map((m) => ({
-      id: m.id,
-      sender: m.sender,
-      role: m.role,
-      turn: m.turn,
-      content: m.content,
-      createdAt: m.createdAt,
-    })),
+    messages: d.messages
+      .filter((m) => m.role !== "skill") // 人格设定/参考资料为内部模型上下文，不随 GET 返回给前端
+      .map((m) => ({
+        id: m.id,
+        sender: m.sender,
+        role: m.role,
+        turn: m.turn,
+        content: m.content,
+        createdAt: m.createdAt,
+      })),
     artifacts: d.artifacts.map((a) => ({
       id: a.id,
       title: a.title,

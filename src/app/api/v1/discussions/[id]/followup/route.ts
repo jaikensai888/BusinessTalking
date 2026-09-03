@@ -6,7 +6,7 @@ import { normalizeProvider } from "@/lib/llm/constants";
 import { decrypt } from "@/lib/settings/encryption";
 import { getSetting } from "@/lib/settings/store";
 import { llmTimeoutMs } from "@/lib/llm/timeout";
-import { loadSkill } from "@/lib/discussion/runner";
+import { ensureSkillLoaded, findSkillMessage, toSkillMessage } from "@/lib/discussion/runner";
 
 const encoder = new TextEncoder();
 /** 把 AI SDK 文本增量封装成 SSE data 帧 */
@@ -41,6 +41,10 @@ export async function POST(req: Request, ctx: RouteContext<"/api/v1/discussions/
   const personaIds = (d.personaIds as string[]) ?? [];
   if (!personaIds.includes(personaId)) return err(40001, "该人格不在本次讨论中", 400);
 
+  // 首轮加载：完整设定（SKILL.md + references）作为一条消息写入讨论，历史承载；system 用精简人格身份。
+  await ensureSkillLoaded(id, persona);
+  const skillMsg = await findSkillMessage(id, personaId);
+
   const [providerRaw, baseUrl, keyCipher, modelRaw, timeoutRaw] = await Promise.all([
     getSetting("llm.provider"),
     getSetting("llm.baseUrl"),
@@ -72,7 +76,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/v1/discussions/
     }
 
     const sys =
-      loadSkill(persona.skillPath, persona.systemPrompt) +
+      persona.systemPrompt +
       `\n\n【讨论背景】\n${d.brief}` +
       `\n\n【讨论要点/共识】\n${d.summaryBox ?? ""}` +
       `\n\n你现在是「${persona.name}」。用户就这次讨论向你单独追问。请以你的立场与风格直接回答，用第一人称，简洁、有观点、不绕弯。`;
@@ -81,7 +85,11 @@ export async function POST(req: Request, ctx: RouteContext<"/api/v1/discussions/
     const result = streamText({
       model: modelObj,
       system: sys,
-      messages: [...history.slice(-12), { role: "user" as const, content: message }],
+      messages: [
+        ...(skillMsg ? [toSkillMessage(skillMsg)] : []),
+        ...history.slice(-12),
+        { role: "user" as const, content: message },
+      ],
       abortSignal: AbortSignal.timeout(llmTimeoutMs(timeoutRaw)),
     });
 

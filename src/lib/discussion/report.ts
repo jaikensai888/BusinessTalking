@@ -64,6 +64,7 @@ export function buildReportMd(input: ReportInput): string {
   L.push("");
   let lastTurn = 0;
   for (const m of messages) {
+    if (m.role === "skill") continue; // 人格设定/参考资料为内部消息，不进报告
     if (m.role === "user") {
       L.push("### 我的插话");
       L.push("");

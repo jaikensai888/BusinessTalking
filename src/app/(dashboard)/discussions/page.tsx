@@ -344,9 +344,11 @@ export default function DiscussionsPage() {
       return;
     }
 
-    // 原有路径：1 对 1 / 多人插话
-    // 1 对 1：专家在后台异步作答，先乐观显示自己的提问，避免“发了没反应”；轮询会带回「正在思考」与最终答复
+    // 原有路径：1 对 1（SSE 逐字流式） / 多人插话（记录后由引擎在下一轮消费）
+    setSending(true);
+    setError(null);
     if (isOne) {
+      // 1 对 1：直接消费 /steer 的 SSE 流，逐字渲染（同"讨论后追问"）
       const optimistic: Msg = {
         id: `tmp-${Date.now()}`,
         sender: "我",
@@ -355,10 +357,91 @@ export default function DiscussionsPage() {
         content: question,
         createdAt: new Date().toISOString(),
       };
-      setCurrent((prev) => (prev ? { ...prev, messages: [...prev.messages, optimistic] } : prev));
+      const aiMsg: Msg = {
+        id: `tmp-ai-${Date.now()}`,
+        sender: current.personas?.[0]?.name ?? "专家",
+        role: "persona",
+        turn: 0,
+        content: "",
+        createdAt: new Date().toISOString(),
+        streaming: true,
+      };
+      setCurrent((prev) => (prev ? { ...prev, messages: [...prev.messages, optimistic, aiMsg] } : prev));
+      const patchLast = (fn: (m: Msg) => Msg) =>
+        setCurrent((prev) => {
+          if (!prev || prev.messages.length === 0) return prev;
+          const messages = [...prev.messages];
+          messages[messages.length - 1] = fn(messages[messages.length - 1]);
+          return { ...prev, messages };
+        });
+      const removeLast = () =>
+        setCurrent((prev) =>
+          prev ? { ...prev, messages: prev.messages.slice(0, Math.max(0, prev.messages.length - 1)) } : prev
+        );
+      try {
+        const res = await fetch(`/api/v1/discussions/${discussionId}/steer`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: question }),
+        });
+        const ct = res.headers.get("content-type") ?? "";
+        if (!ct.includes("text/event-stream")) {
+          let msgText = "发送失败";
+          try {
+            const dj = await res.json();
+            if (dj.code !== 0) msgText = dj.message ?? msgText;
+          } catch {
+            /* 忽略 */
+          }
+          setError(msgText);
+          setCurrent((prev) =>
+            prev ? { ...prev, messages: prev.messages.slice(0, Math.max(0, prev.messages.length - 2)) } : prev
+          );
+          return;
+        }
+        const reader = res.body!.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let full = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let idx: number;
+          while ((idx = buffer.indexOf("\n\n")) >= 0) {
+            const frame = buffer.slice(0, idx);
+            buffer = buffer.slice(idx + 2);
+            const line = frame.split("\n").find((l) => l.startsWith("data:"));
+            if (!line) continue;
+            const payload = line.slice(5).trim();
+            if (!payload) continue;
+            let evt: { type?: string; text?: string; message?: string };
+            try {
+              evt = JSON.parse(payload);
+            } catch {
+              continue;
+            }
+            if (evt.type === "delta") {
+              full += evt.text ?? "";
+              patchLast((m) => ({ ...m, content: full }));
+            } else if (evt.type === "done") {
+              patchLast((m) => ({ ...m, content: full, streaming: false }));
+            } else if (evt.type === "error") {
+              setError(evt.message ?? "发送失败");
+              removeLast();
+            }
+          }
+        }
+        void load(discussionId); // 与库同步，取回真实 id
+      } catch {
+        setError("发送失败");
+        removeLast();
+      } finally {
+        setSending(false);
+      }
+      return;
     }
-    setSending(true);
-    setError(null);
+    // 多人插话：仅记录，由运行引擎在下一轮消费
     try {
       const res = await fetch(`/api/v1/discussions/${discussionId}/steer`, {
         method: "POST",
@@ -366,9 +449,8 @@ export default function DiscussionsPage() {
         body: JSON.stringify({ message: question }),
       });
       const d = await res.json();
-      if (d.code === 0) {
-        connectLive(discussionId);
-      } else setError(d.message ?? (isOne ? "发送失败" : "插话失败"));
+      if (d.code === 0) connectLive(discussionId);
+      else setError(d.message ?? "插话失败");
     } finally {
       setSending(false);
     }
@@ -435,6 +517,8 @@ export default function DiscussionsPage() {
   // 讨论未在进行中时，才能向某个人格「追问」（避免被实时推送的 load 覆盖流式气泡）
   const canFollowUp = !!current && !running && (current.status === "done" || current.status === "failed");
   const personaNames = new Set((current?.personas ?? []).map((p) => p.name));
+  // 隐藏"人格设定/参考资料"（role=skill）这类内部消息，不占用聊天气泡
+  const visibleMessages = current?.messages.filter((m) => m.role !== "skill") ?? [];
 
   return (
     <div className="mx-auto max-w-[1500px] h-[calc(100vh-44px)] px-6">
@@ -556,7 +640,7 @@ export default function DiscussionsPage() {
                 ref={scrollRef}
                 className="flex-1 space-y-6 overflow-y-auto bg-parchment px-6 py-6"
               >
-                {current.messages.length === 0 ? (
+                {visibleMessages.length === 0 ? (
                   <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
                     <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
                       <ChatCircleDots size={22} weight="duotone" />
@@ -566,7 +650,7 @@ export default function DiscussionsPage() {
                     </p>
                   </div>
                 ) : (
-                  current.messages.map((m, idx) => {
+                  visibleMessages.map((m, idx) => {
                     if (m.role === "summary") {
                       return (
                         <div key={m.id} className="mx-auto max-w-[85%] rounded-2xl border border-success/20 bg-success/10 px-4 py-3 text-[13px] text-ink-80">
@@ -579,7 +663,7 @@ export default function DiscussionsPage() {
                     }
                     const isUser = m.role === "user";
                     const time = new Date(m.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
-                    const prev = current.messages[idx - 1];
+                    const prev = visibleMessages[idx - 1];
                     const newDay = !prev || dayLabel(prev.createdAt) !== dayLabel(m.createdAt);
                     return (
                       <Fragment key={m.id}>
@@ -740,7 +824,7 @@ export default function DiscussionsPage() {
                     </span>
                     <CopyId id={current.shortId} />
                   </div>
-                  <Button variant="dark" size="sm" onClick={summarize} disabled={summarizing || current.messages.length === 0}>
+                  <Button variant="dark" size="sm" onClick={summarize} disabled={summarizing || visibleMessages.length === 0}>
                     {summarizing ? "总结中…" : "总结"}
                   </Button>
                 </div>
