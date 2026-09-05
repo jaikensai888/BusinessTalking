@@ -4,13 +4,17 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
+import {
+  KNOWN_FORBIDDEN_TOOLS,
+} from "@/lib/dsh/tool-policy";
 
 /**
  * Resolve the `dsh` bin shipped with the same-version `@deepseek-ai/dsh` package
- * and run `dsh --profile sdk --dump-config`. This is the fastest deterministic
- * smoke that the DSH runtime profile composes and that the pieces named by the
- * execution plan are actually present (intended for a local DSH build / sdk
- * profile dump-config, per plan step 12).
+ * and run `dsh --profile sdk --dump-config` with the project's P0 patch.
+ * This is the fastest deterministic smoke that the DSH runtime profile composes,
+ * that the pieces named by the execution plan are actually present, and — after
+ * applying `runtime/dsh/cordis.patch.yml` — that no P0-forbidden tool remains in
+ * the active roster.
  */
 function resolveDshBin(): string {
   const req = createRequire(import.meta.url);
@@ -27,19 +31,59 @@ function resolveDshBin(): string {
   return path.join(path.dirname(manifest), binRel);
 }
 
-function dumpConfig(): string {
+function dumpConfig(patch?: string): string {
   const bin = resolveDshBin();
   const dshHome = fs.mkdtempSync(path.join(os.tmpdir(), "business-talking-dsh-"));
   try {
-    return execFileSync(process.execPath, [bin, "--profile", "sdk", "--dump-config"], {
-      encoding: "utf8",
-      timeout: 60_000,
-      env: { ...process.env, DSH_HOME: dshHome },
-    });
+    return execFileSync(
+      process.execPath,
+      [bin, "--profile", "sdk", ...(patch ? ["--patch", patch] : []), "--dump-config"],
+      {
+        encoding: "utf8",
+        timeout: 60_000,
+        env: { ...process.env, DSH_HOME: dshHome },
+      }
+    );
   } finally {
     fs.rmSync(dshHome, { recursive: true, force: true });
   }
 }
+
+/** 解析 dump 文本中的 entries（id + disabled 状态）。
+ *  dump 按 patch 层输出：同一 id 可能先出现在「patched by」覆盖层、后出现在原始层。
+ *  覆盖层在前，因此首次出现即最终生效状态；后续出现不再覆盖（first-wins）。 */
+function parseEntries(cfg: string): Map<string, boolean> {
+  const final = new Map<string, boolean>();
+  const seen = new Set<string>();
+  let id: string | null = null;
+  let lastDisabled: boolean | null = null;
+  const flush = () => {
+    if (id !== null && !seen.has(id)) {
+      final.set(id, lastDisabled === true);
+      seen.add(id);
+    }
+  };
+  for (const line of cfg.split("\n")) {
+    const idMatch = /^ *- id: (.+)$/.exec(line);
+    if (idMatch) {
+      flush();
+      id = idMatch[1].trim();
+      lastDisabled = null;
+      continue;
+    }
+    const disMatch = /^ *disabled: (true|false)$/.exec(line);
+    if (disMatch && id) lastDisabled = disMatch[1] === "true";
+  }
+  flush();
+  return final;
+}
+
+/** 忽略平台条件 disabled（如 `!!js process.platform === 'win32'`）以外的判定。 */
+function activeNames(entries: Map<string, boolean>): string[] {
+  return [...entries.entries()].filter(([, disabled]) => !disabled).map(([id]) => id);
+}
+
+const projectRoot = process.cwd();
 
 describe("dsh sdk profile config smoke", () => {
   it("composes the sdk profile and exposes the components named by the plan", () => {
@@ -63,5 +107,22 @@ describe("dsh sdk profile config smoke", () => {
     expect(cfg).toContain("id: agent-loop");
     expect(cfg).toContain("id: system-prompt");
     expect(cfg).toContain("id: subagent");
+  });
+
+  it("keeps every P0-forbidden tool out of the patched active roster", () => {
+    const patch = path.join(projectRoot, "runtime", "dsh", "cordis.patch.yml");
+    expect(fs.existsSync(patch), "P0 patch must exist").toBe(true);
+    const cfg = dumpConfig(patch);
+    const entries = parseEntries(cfg);
+    const active = activeNames(entries);
+
+    for (const name of KNOWN_FORBIDDEN_TOOLS) {
+      expect(active, `P0-forbidden tool must be disabled: ${name}`).not.toContain(name);
+    }
+
+    // 必需组件必须仍在 active roster（前提：patch 不能把运行时拆散）
+    for (const required of ["skill", "agent-loop", "system-prompt", "session-projection", "tools", "llm-pi-ai"]) {
+      expect(active, `required component must stay active: ${required}`).toContain(required);
+    }
   });
 });

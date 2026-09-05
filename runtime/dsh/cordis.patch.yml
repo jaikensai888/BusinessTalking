@@ -1,13 +1,19 @@
 # BusinessTalking DSH runtime patch — 关闭默认 skill/web/副作用工具。
 # 插件插入由 src/lib/runtime/singleton.ts 运行时用 pathToFileURL 动态生成（可移植），
 # 因为相对路径在 pnpm 布局的 dsh 运行时下无法装载，故必须用绝对 file:// 路径。
-# 基于 `dsh --profile sdk --dump-config` 的真实 id。应用顺序在 profile 层之后。
+# 基于 `dsh --profile sdk --dump-config` 的真实 id（2026-09-05 核对 0.1.2-rc.1）。
+# 应用顺序在 profile 层之后。
+#
+# P0 遵守：任何 patch 中未列出的入口不能视为安全；smoke 测试断言每个目标 entry
+# 在应用本 patch 后均不在 active roster（见 tests/e2e/dsh-config-smoke.test.ts）。
 
 # 默认 filesystem Skill provider：关闭，只暴露 BT scoped provider 的 allowlist
 - id: skill-filesystem
   disabled: true
 
-# 网络工具：关闭默认 web，只保留 BT 只读 web_search（走内部 endpoint）
+# 网络工具：关闭默认 web 全家（DSH 默认 web_search/web_fetch 全部不可见）
+- id: web
+  disabled: true
 - id: tool-web
   disabled: true
 - id: web-search-deepseek
@@ -18,6 +24,14 @@
 # 副作用/外部工具：一律关闭
 - id: tool-bash
   disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: tool-fs
+  disabled: true
+- id: tool-fs-search
+  disabled: true
+- id: tool-str-replace-editor
+  disabled: true
 - id: tool-goal
   disabled: true
 - id: tool-todo
@@ -26,10 +40,26 @@
   disabled: true
 - id: tool-jobs
   disabled: true
+- id: tool-ralph
+  disabled: true
+
+# 子 Agent 家族：工具层面全部关闭（service 本体保留，防止 profile boot 失败；
+# 不可见性由 Agent scoped restriction + 执行 guard 兜底）
+- id: tool-subagent
+  disabled: true
+- id: tool-subagent-fork
+  disabled: true
+- id: tool-subagent-control
+  disabled: true
+- id: tool-subagent-list-agents
+  disabled: true
+- id: workflow-worker-thread
+  disabled: true
 
 # 未使用的 provider route：避免 DSH 默认 provider 抢占
 - id: llm-deepseek
   disabled: true
 
-# ⚠️ 不能禁用 subagent：dsh-subagent-spawn-in-process 依赖它就报“8 entries did not activate”。
-#   第一阶段对 subagent 事件只记录、不启用 roster（由 BusinessTalking 侧控制），而非 patch 层 disable。
+# ⚠️ 不能禁用 subagent / subagent-spawn-in-process / subagent-fork-in-process
+#   service 本体：dsh-subagent-spawn-in-process 依赖它就报“8 entries did not activate”。
+#   服务保留时由 Agent scoped restriction/guard 使其对模型不可见、不可调用。

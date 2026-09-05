@@ -75,7 +75,7 @@ export function buildPersonaManifest(
         description: `Persona: ${persona.name}`,
       },
     ],
-    toolPolicy: { webSearch: true, sideEffects: false },
+    toolPolicy: { webSearch: false, sideEffects: false },
   };
 }
 
