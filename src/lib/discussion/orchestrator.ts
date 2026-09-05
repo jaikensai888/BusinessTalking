@@ -5,7 +5,6 @@
  */
 import { prisma } from "@/lib/db";
 import { ensurePersonaSession, freshTurnSessionId, runTurnViaDsh, writeModeratorManifestForSession } from "./dsh-service";
-import { persistAgentEvents, type DshNotification } from "@/lib/dsh/events";
 import { parseStateProposal, emptyState, type DiscussionState, type StateProposal } from "./state";
 import { publish } from "./broadcast";
 import {

@@ -68,7 +68,7 @@ function nodeBin(): string {
 }
 
 /** 将 runner 结构化 code 映射到 DshError 子类（解析异常 → DSH_PROTOCOL_FAILED） */
-export function mapRunnerError(code: string | undefined, message: string, stage: string | undefined): DshError {
+export function mapRunnerError(code: string | undefined, message: string): DshError {
   const safe = (m: string) => m.slice(0, 500);
   switch (code) {
     case "DSH_START_FAILED":
@@ -123,7 +123,7 @@ export function runTurnViaProcess(req: TurnRequest): Promise<TurnResult> {
         return;
       }
       if (!parsed.ok) {
-        reject(mapRunnerError(parsed.code, parsed.error ?? "未知错误", parsed.stage));
+        reject(mapRunnerError(parsed.code, parsed.error ?? "未知错误"));
         return;
       }
       // 返回其他 session 或非字符串 response 均按失败处理

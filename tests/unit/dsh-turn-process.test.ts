@@ -12,35 +12,35 @@ import {
 
 describe("dsh turn-process error mapping", () => {
   it("maps startup/handshake failures to DshStartFailedError", () => {
-    expect(mapRunnerError("DSH_START_FAILED", "spawn failed", "env")).toBeInstanceOf(DshStartFailedError);
-    expect(mapRunnerError("DSH_INITIALIZE_FAILED", "handshake boom", "run")).toBeInstanceOf(DshStartFailedError);
+    expect(mapRunnerError("DSH_START_FAILED", "spawn failed")).toBeInstanceOf(DshStartFailedError);
+    expect(mapRunnerError("DSH_INITIALIZE_FAILED", "handshake boom")).toBeInstanceOf(DshStartFailedError);
   });
 
   it("maps manifest errors to DshManifestError", () => {
-    expect(mapRunnerError("DSH_MANIFEST_INVALID", "manifest corrupt", "run")).toBeInstanceOf(DshManifestError);
+    expect(mapRunnerError("DSH_MANIFEST_INVALID", "manifest corrupt")).toBeInstanceOf(DshManifestError);
   });
 
   it("maps route/credential/skill errors to their specific classes", () => {
-    expect(mapRunnerError("DSH_ROUTE_UNSUPPORTED", "no route", "run")).toBeInstanceOf(DshRouteUnsupportedError);
-    expect(mapRunnerError("DSH_CREDENTIAL_INVALID", "no key", "run")).toBeInstanceOf(DshCredentialInvalidError);
-    expect(mapRunnerError("DSH_SKILL_NOT_ALLOWED", "denied", "run")).toBeInstanceOf(DshSkillNotAllowedError);
+    expect(mapRunnerError("DSH_ROUTE_UNSUPPORTED", "no route")).toBeInstanceOf(DshRouteUnsupportedError);
+    expect(mapRunnerError("DSH_CREDENTIAL_INVALID", "no key")).toBeInstanceOf(DshCredentialInvalidError);
+    expect(mapRunnerError("DSH_SKILL_NOT_ALLOWED", "denied")).toBeInstanceOf(DshSkillNotAllowedError);
   });
 
   it("defaults unknown or missing codes to DshTurnError", () => {
-    expect(mapRunnerError(undefined, "boom", "run")).toBeInstanceOf(DshTurnError);
-    expect(mapRunnerError("SOME_OTHER_CODE", "boom", "run")).toBeInstanceOf(DshTurnError);
+    expect(mapRunnerError(undefined, "boom")).toBeInstanceOf(DshTurnError);
+    expect(mapRunnerError("SOME_OTHER_CODE", "boom")).toBeInstanceOf(DshTurnError);
   });
 
   it("truncates long error messages to a safe short form", () => {
     const long = "x".repeat(2000);
-    const e = mapRunnerError("DSH_MANIFEST_INVALID", long, "run");
+    const e = mapRunnerError("DSH_MANIFEST_INVALID", long);
     expect(e.message.length).toBeLessThanOrEqual(500);
   });
 
   it("classifies a plain model turn error from a malformed response as DshTurnError", () => {
     // 模拟 runner ok:true 但 finalResponse 非字符串 → turn-process 会抛 DshTurnError；
     // 这里直接验证映射函数对 DSH_TURN_FAILED 的处理
-    expect(mapRunnerError("DSH_TURN_FAILED", "empty response", "run")).toBeInstanceOf(DshTurnError);
+    expect(mapRunnerError("DSH_TURN_FAILED", "empty response")).toBeInstanceOf(DshTurnError);
   });
 
   it("keeps DshProtocolError semantics intact for parse failures", () => {

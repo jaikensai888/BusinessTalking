@@ -28,7 +28,7 @@ interface MountedAgent {
   sections: { name: string; order: number; text: () => string }[];
 }
 
-async function captureMount(sessionId: string, manifest: unknown, btSessionEnv?: string) {
+async function captureMount(sessionId: string) {
   let created: ((payload: { agent: unknown }) => void) | undefined;
   const mounted: MountedAgent = {
     providerFactory: undefined,
@@ -143,7 +143,7 @@ describe("business-talking DSH plugin (P0 scoped mount)", () => {
     const { manifestPath, snapshotRoot, skillContent } = writeFixtureManifest({ sessionId });
     process.env.BT_DSH_SESSION_ID = sessionId;
     try {
-      const { provider } = await captureMount(sessionId, null) as { provider: { list: () => Promise<unknown[]>; get: (c: unknown) => Promise<{ content: string }> } };
+      const { provider } = await captureMount(sessionId) as { provider: { list: () => Promise<unknown[]>; get: (c: unknown) => Promise<{ content: string }> } };
       const candidates = await provider.list();
       const persona = candidates.find((candidate) => (candidate as { name?: string }).name === "persona-profile");
       expect(persona).toBeDefined();
@@ -159,7 +159,7 @@ describe("business-talking DSH plugin (P0 scoped mount)", () => {
   it("fails closed when BT_DSH_SESSION_ID is missing (no test manifest fallback)", async () => {
     delete process.env.BT_DSH_SESSION_ID;
     const sessionId = `bt-plugin-missing-${crypto.randomUUID()}`;
-    await expect(captureMount(sessionId, null)).rejects.toThrow("未找到 manifest");
+    await expect(captureMount(sessionId)).rejects.toThrow("未找到 manifest");
   });
 
   it("registers only read-only tools and applies restrict allowlist", async () => {
@@ -167,7 +167,7 @@ describe("business-talking DSH plugin (P0 scoped mount)", () => {
     const { manifestPath, snapshotRoot } = writeFixtureManifest({ sessionId });
     process.env.BT_DSH_SESSION_ID = sessionId;
     try {
-      const { mounted } = await captureMount(sessionId, null) as { mounted: MountedAgent };
+      const { mounted } = await captureMount(sessionId) as { mounted: MountedAgent };
       expect([...mounted.registeredTools.keys()].sort()).toEqual(["read_skill_reference"]);
       expect(mounted.restrictedAllow).toEqual(["skill", "read_skill_reference"]);
       expect(mounted.guard).toBeTypeOf("function");
@@ -185,7 +185,7 @@ describe("business-talking DSH plugin (P0 scoped mount)", () => {
     });
     process.env.BT_DSH_SESSION_ID = sessionId;
     try {
-      const { mounted } = await captureMount(sessionId, null) as { mounted: MountedAgent };
+      const { mounted } = await captureMount(sessionId) as { mounted: MountedAgent };
       expect([...mounted.registeredTools.keys()].sort()).toEqual(["read_skill_reference", "web_search"]);
       expect(mounted.restrictedAllow).toEqual(["skill", "read_skill_reference", "web_search"]);
     } finally {
@@ -215,9 +215,9 @@ describe("business-talking DSH plugin (P0 scoped mount)", () => {
     });
     process.env.BT_DSH_SESSION_ID = sessionA;
     try {
-      const A = await captureMount(sessionA, null) as { provider: { list: () => Promise<unknown[]>; get: (c: unknown) => Promise<{ content: string }> } };
+      const A = await captureMount(sessionA) as { provider: { list: () => Promise<unknown[]>; get: (c: unknown) => Promise<{ content: string }> } };
       process.env.BT_DSH_SESSION_ID = sessionB;
-      const B = await captureMount(sessionB, null) as { provider: { list: () => Promise<unknown[]>; get: (c: unknown) => Promise<{ content: string }> } };
+      const B = await captureMount(sessionB) as { provider: { list: () => Promise<unknown[]>; get: (c: unknown) => Promise<{ content: string }> } };
 
       const listA = await A.provider.list();
       const listB = await B.provider.list();
@@ -248,7 +248,7 @@ describe("business-talking DSH plugin (P0 scoped mount)", () => {
     const { manifestPath, snapshotRoot } = writeFixtureManifest({ sessionId });
     process.env.BT_DSH_SESSION_ID = sessionId;
     try {
-      const { mounted } = await captureMount(sessionId, null) as { mounted: MountedAgent };
+      const { mounted } = await captureMount(sessionId) as { mounted: MountedAgent };
       const guard = mounted.guard;
       if (!guard) throw new Error("guard 未注册");
       expect(guard({ name: "tool-pwsh", agent: { id: sessionId } })).toMatch(/不在 P0 只读 allowlist/);
@@ -267,7 +267,7 @@ describe("business-talking DSH plugin (P0 scoped mount)", () => {
     const { manifestPath, snapshotRoot } = writeFixtureManifest({ sessionId });
     process.env.BT_DSH_SESSION_ID = sessionId;
     try {
-      const { mounted } = await captureMount(sessionId, null) as { mounted: MountedAgent };
+      const { mounted } = await captureMount(sessionId) as { mounted: MountedAgent };
       const sec = mounted.sections.find((s) => s.name === "deployment:persona");
       expect(sec).toBeDefined();
       expect(sec?.order).toBe(0);
