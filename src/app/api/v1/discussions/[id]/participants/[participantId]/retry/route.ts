@@ -1,14 +1,12 @@
 import { err, ok } from "@/lib/api";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { ensureStartedForSettings, getRuntimeManager } from "@/lib/runtime/singleton";
-import { persistAgentEvents, type DshNotification } from "@/lib/dsh/events";
-import { DshSessionBusyError, DshError } from "@/lib/dsh/errors";
+import { ensurePersonaSession, freshTurnSessionId, runTurnViaDsh } from "@/lib/discussion/dsh-service";
 
 /**
  * POST /api/v1/discussions/:id/participants/:participantId/retry
  * 失败重试：只允许 status=failed 的 participant；读取原失败回合的 DiscussionTurn.inputSnapshot，
- * 用同一 dshSessionId 重发相同 prompt；成功后用新 attempt 写真实结果，不得重算原输入。
+ * 用新的独立 DSH session 重发相同 prompt；成功后用新 attempt 写真实结果，不得重算原输入。
  */
 export async function POST(_req: Request, ctx: RouteContext<"/api/v1/discussions/[id]/participants/[participantId]/retry">) {
   const { id, participantId } = await ctx.params;
@@ -28,18 +26,15 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/v1/discussions
   const prompt = snapshot?.prompt;
   if (!prompt) return err(42201, "输入快照缺少 prompt", 422);
 
-  const persona = await prisma.persona.findUnique({ where: { id: participant.personaId } });
-  if (!persona) return err(40401, "人格不存在", 404);
-
-  await ensureStartedForSettings();
-  const mgr = getRuntimeManager();
+  const turnSessionId = freshTurnSessionId(id, participant.personaId);
+  const { persona } = await ensurePersonaSession(id, participant.personaId, turnSessionId);
 
   const newAttempt = snapshotTurn.attempt + 1;
   const newTurn = await prisma.discussionTurn.create({
     data: {
       discussionId: id,
       participantId: participant.id,
-      sessionId: participant.dshSessionId,
+      sessionId: turnSessionId,
       kind: "persona",
       round: snapshotTurn.round,
       attempt: newAttempt,
@@ -51,8 +46,7 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/v1/discussions
   await prisma.discussionParticipant.update({ where: { id: participant.id }, data: { status: "running" } });
 
   try {
-    const result = await mgr.run(participant.dshSessionId, prompt, undefined);
-    await persistAgentEvents(id, result.notifications as DshNotification[]);
+    const result = { finalResponse: await runTurnViaDsh(turnSessionId, prompt) };
 
     const text = result.finalResponse.trim();
     if (text) {
@@ -61,7 +55,7 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/v1/discussions
           discussionId: id,
           personaId: participant.personaId,
           participantId: participant.id,
-          sessionId: participant.dshSessionId,
+          sessionId: turnSessionId,
           sender: persona.name,
           role: "persona",
           turn: snapshotTurn.round,
@@ -88,7 +82,6 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/v1/discussions
       data: { status: "failed", errorMessage: error, completedAt: new Date() },
     });
     await prisma.discussionParticipant.update({ where: { id: participant.id }, data: { status: "failed", lastError: error } });
-    if (e instanceof DshSessionBusyError) return err(40901, e.message, 409);
     throw e;
   }
 }

@@ -4,7 +4,7 @@
  * StateProposal，BusinessTalking 校验并原子提交。
  */
 import { prisma } from "@/lib/db";
-import { ensurePersonaSession, runTurnViaDsh, writeModeratorManifestForSession } from "./dsh-service";
+import { ensurePersonaSession, freshTurnSessionId, runTurnViaDsh, writeModeratorManifestForSession } from "./dsh-service";
 import { persistAgentEvents, type DshNotification } from "@/lib/dsh/events";
 import { parseStateProposal, emptyState, type DiscussionState, type StateProposal } from "./state";
 import { publish } from "./broadcast";
@@ -166,7 +166,8 @@ export async function runDiscussion(discussionId: string): Promise<void> {
         const prompt = buildGroupPersonaPrompt(persona.name, persona.systemPrompt, d.brief, round, state, roundOutputs, steers);
 
         try {
-          const { participant } = await ensurePersonaSession(discussionId, personaId);
+          const turnSessionId = freshTurnSessionId(discussionId, personaId);
+          const { participant } = await ensurePersonaSession(discussionId, personaId, turnSessionId);
           await prisma.discussionParticipant.update({ where: { id: participant.id }, data: { status: "running" } });
           publish(discussionId, { type: "change" });
 
@@ -175,7 +176,7 @@ export async function runDiscussion(discussionId: string): Promise<void> {
             data: {
               discussionId,
               participantId: participant.id,
-              sessionId: participant.dshSessionId,
+              sessionId: turnSessionId,
               kind: "persona",
               round,
               attempt: 1,
@@ -184,14 +185,14 @@ export async function runDiscussion(discussionId: string): Promise<void> {
             },
           });
 
-          const text = (await runTurnViaDsh(participant.dshSessionId, prompt)).trim();
+          const text = (await runTurnViaDsh(turnSessionId, prompt)).trim();
           if (text) {
             const msg = await prisma.discussionMessage.create({
               data: {
                 discussionId,
                 personaId,
                 participantId: participant.id,
-                sessionId: participant.dshSessionId,
+                sessionId: turnSessionId,
                 sender: persona.name,
                 role: "persona",
                 turn: round,
@@ -230,18 +231,22 @@ export async function runDiscussion(discussionId: string): Promise<void> {
       }
 
       // Moderator 汇总（独立 Session；每回合用全新 session，避免复用已完结 session 空回复）
-      const moderatorSessionId = d.moderatorSessionId ?? `bt-discussion-${discussionId}-moderator`;
+      const logicalModeratorSessionId = d.moderatorSessionId ?? `bt-discussion-${discussionId}-moderator`;
       if (!d.moderatorSessionId) {
-        await prisma.discussion.update({ where: { id: discussionId }, data: { moderatorSessionId } });
-        writeModeratorManifestForSession(moderatorSessionId, discussionId);
+        await prisma.discussion.update({ where: { id: discussionId }, data: { moderatorSessionId: logicalModeratorSessionId } });
       }
+      const runModeratorAttempt = (attempt: number) => {
+        const sessionId = freshTurnSessionId(discussionId, `moderator-${attempt}`);
+        writeModeratorManifestForSession(sessionId, discussionId);
+        return runModeratorTurn(discussionId, round, state, acceptedMessageIds, sessionId, attempt);
+      };
       let proposal: StateProposal;
       try {
-        proposal = await runModeratorTurn(discussionId, round, state, acceptedMessageIds, moderatorSessionId, 1);
+        proposal = await runModeratorAttempt(1);
       } catch (e) {
         // 重试一次（模型输出可能不稳定）
         try {
-          proposal = await runModeratorTurn(discussionId, round, state, acceptedMessageIds, moderatorSessionId, 2);
+          proposal = await runModeratorAttempt(2);
         } catch {
           // 兜底：用本轮人格回复作为共识摘要，保证讨论能完成
           proposal = {

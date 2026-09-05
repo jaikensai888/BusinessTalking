@@ -1,24 +1,21 @@
 /**
- * 1v1 DSH 讨论 service（见方案 §7）。把「一次提问 → DSH run → 事件/消息投影」串起来。
- *
- * 依赖：场景需 Runtime 已启动（ensureStartedForSettings）与插件（人格 prompt/skill）
- * 功能接线；插件未接线前，本 service 直接把 persona systemPrompt + brief 注入 prompt
- * packet 作为过渡（仍由 DSH 管理 history 与工具调用）。
+ * 1v1 DSH 讨论 service（见方案 §7）。把「一次提问 → 独立 DSH 回合 → 消息投影」串起来。
+ * 每个回合使用自己的 session manifest，确保 DSH 插件读取到当前讨论的人格 Skill。
  */
 import { prisma } from "@/lib/db";
 import { generateText } from "ai";
+import { randomUUID } from "node:crypto";
 import { ensurePersonaSnapshot, type PersonaSnapshot } from "@/lib/dsh/snapshot";
-import { writeManifestAtomic, type RuntimeSessionManifest } from "@/lib/dsh/manifest";
-import { persistAgentEvents, type DshNotification } from "@/lib/dsh/events";
-import { getRuntimeManager, ensureStartedForSettings } from "@/lib/runtime/singleton";
+import { deleteManifest, writeManifestAtomic, type RuntimeSessionManifest } from "@/lib/dsh/manifest";
+import { getDshTurnConfig } from "@/lib/runtime/singleton";
+import { runTurnViaProcess } from "@/lib/runtime/turn-process";
 import { getSetting } from "@/lib/settings/store";
 import { decrypt } from "@/lib/settings/encryption";
 import { buildModel } from "@/lib/llm/providers";
 import { normalizeProvider } from "@/lib/llm/constants";
 import { llmTimeoutMs } from "@/lib/llm/timeout";
-import type { RuntimeRunResult } from "@/lib/runtime/types";
 import { publish } from "./broadcast";
-import { DiscussionArchivedError, DshSessionBusyError } from "@/lib/dsh/errors";
+import { DiscussionArchivedError } from "@/lib/dsh/errors";
 
 /** 从 DB 读取 Persona 源（供快照） */
 async function loadPersonaSource(personaId: string) {
@@ -82,13 +79,14 @@ export function buildPersonaManifest(
   };
 }
 
-/** 首轮：确保 Persona 快照 + 写 Session manifest */
-export async function ensurePersonaSession(discussionId: string, personaId: string) {
+/** 为一个 DSH 回合确保 Persona 快照 + 写入匹配的 Session manifest */
+export async function ensurePersonaSession(discussionId: string, personaId: string, sessionId?: string) {
   const participant = await ensureParticipant(discussionId, personaId);
   const persona = await loadPersonaSource(personaId);
   const snapshot = ensurePersonaSnapshot(persona);
 
-  const manifest = buildPersonaManifest(discussionId, participant, persona, snapshot, participant.dshSessionId);
+  const manifestSessionId = sessionId ?? participant.dshSessionId;
+  const manifest = buildPersonaManifest(discussionId, participant, persona, snapshot, manifestSessionId);
   writeManifestAtomic(manifest);
 
   await prisma.discussionParticipant.update({
@@ -101,7 +99,12 @@ export async function ensurePersonaSession(discussionId: string, personaId: stri
       lastError: null,
     },
   });
-  return { participant, snapshot, persona };
+  return { participant, snapshot, persona, sessionId: manifestSessionId };
+}
+
+/** 每个独立 DSH 回合使用新的 session，避免跨进程复用已结束 session 返回空回复。 */
+export function freshTurnSessionId(discussionId: string, actorId: string): string {
+  return `bt-turn-${discussionId}-${actorId}-${randomUUID()}`;
 }
 
 /** 组装 1v1 prompt packet（不含完整 Skill 全文/history；history 由 DSH 管理） */
@@ -135,7 +138,7 @@ export interface RunTurnResult {
 }
 
 /**
- * 1v1 单个回合：写 manifest → manager.run → 持久化 AgentEvents → 投影 DiscussionMessage。
+ * 1v1 单个回合：写 manifest → 独立 DSH 进程 → 投影 DiscussionMessage。
  * @param isSteerFollowup 是否后续追问（首轮则先 ensurePersonaSession）
  */
 export async function runOneOnOneTurn(
@@ -149,7 +152,8 @@ export async function runOneOnOneTurn(
   if (d.archivedAt) throw new DiscussionArchivedError();
   const isOneOnOne = Array.isArray(d.personaIds) && d.personaIds.length === 1;
 
-  const { participant, persona } = await ensurePersonaSession(discussionId, personaId);
+  const turnSessionId = freshTurnSessionId(discussionId, personaId);
+  const { participant, persona } = await ensurePersonaSession(discussionId, personaId, turnSessionId);
 
   const state = (d.discussionState as unknown) ?? {};
   const prompt = buildPersonaPromptPacket(persona, d.brief, question, state);
@@ -162,7 +166,7 @@ export async function runOneOnOneTurn(
     data: {
       discussionId,
       participantId: participant.id,
-      sessionId: participant.dshSessionId,
+      sessionId: turnSessionId,
       kind: "persona",
       round: 0,
       attempt: 1,
@@ -171,12 +175,11 @@ export async function runOneOnOneTurn(
     },
   });
 
-  // 常驻 DSH Runtime 跑一回合（进程内单例 DeepSeekHarness，跨回合复用）；失败时回退 AI SDK 兜底。
-  // 用「稳定 dshSessionId」让 DSH 保留跨回合上下文；本服务器已是真实 node 进程（非 Electron 托管）。
+  // 用独立 DSH 回合进程执行；失败时回退 AI SDK 兜底。
   let result: { finalResponse: string };
   try {
-    result = { finalResponse: await runTurnViaDsh(participant.dshSessionId, prompt) };
-  } catch (dshE) {
+    result = { finalResponse: await runTurnViaDsh(turnSessionId, prompt) };
+  } catch {
     // 回退：AI SDK 进程内生成（确保讨论能出回复）
     try {
       result = { finalResponse: await runViaAiSdk(persona.name, persona.systemPrompt, d.brief, question) };
@@ -194,7 +197,7 @@ export async function runOneOnOneTurn(
         await prisma.discussion.update({ where: { id: discussionId }, data: { status: "failed" } });
       }
       publish(discussionId, { type: "change" });
-      return { participantId: participant.id, sessionId: participant.dshSessionId, finalText: "", eventsWritten: 0, status: "failed", error };
+      return { participantId: participant.id, sessionId: turnSessionId, finalText: "", eventsWritten: 0, status: "failed", error };
     }
   }
 
@@ -208,7 +211,7 @@ export async function runOneOnOneTurn(
         discussionId,
         personaId,
         participantId: participant.id,
-        sessionId: participant.dshSessionId,
+        sessionId: turnSessionId,
         sender: persona.name,
         role: "persona",
         turn: 0,
@@ -245,7 +248,7 @@ export async function runOneOnOneTurn(
     publish(discussionId, { type: "change" });
     return {
       participantId: participant.id,
-      sessionId: participant.dshSessionId,
+      sessionId: turnSessionId,
       finalText: "",
       eventsWritten,
       status: "failed",
@@ -255,32 +258,38 @@ export async function runOneOnOneTurn(
 
   return {
     participantId: participant.id,
-    sessionId: participant.dshSessionId,
+    sessionId: turnSessionId,
     finalText,
     eventsWritten,
     status: "completed",
   };
 }
 
-function lastEventSeq(_result: RuntimeRunResult): number {
-  // 暂时记录最近一次持久化 seq；由 events 层维护的永久字段后续精化
-  return 0;
-}
-
 /**
- * 在「常驻进程内 DSH Runtime」（单例 DeepSeekHarness）上跑一回合。跨回合复用同一 runtime，
- * 因此速度远快于每回合现起进程，且能保留同 session 的跨回合上下文。返回 finalResponse。
- * 依赖：服务器为真实 node 进程（process.execPath=node），否则进程内 spawn 会被 Electron 破坏。
+ * 用独立真实 Node 进程跑一回合，并把调用方传入的 sessionId 作为 manifest key。
+ * 这样插件不会回退到固定的 bt-e2e manifest；每回合结束后清理临时 manifest。
  */
 export async function runTurnViaDsh(sessionId: string, prompt: string): Promise<string> {
-  // 惰性启动常驻 Runtime（用当前 LLM 设置 + 注入 API key），已启动则复用；profile 冲突会 drain 重建
-  await ensureStartedForSettings();
-  const mgr = getRuntimeManager();
-  const res = await mgr.run(sessionId, prompt);
-  return res.finalResponse;
+  try {
+    const config = await getDshTurnConfig();
+    const res = await runTurnViaProcess({
+      sessionId,
+      prompt,
+      provider: config.profile.dshRoute ?? config.profile.provider,
+      model: config.profile.model,
+      cwd: config.cwd,
+      dshBin: config.dshBin,
+      dshHome: config.dshHome,
+      apiKey: config.apiKey,
+      patches: config.patches,
+    });
+    return res.finalResponse;
+  } finally {
+    deleteManifest(sessionId);
+  }
 }
 
-/** 写一个中立 Moderator 的 manifest（keyed 到稳定 moderatorSessionId） */
+/** 写一个中立 Moderator 的 manifest（keyed 到本次回合的 sessionId） */
 export function writeModeratorManifestForSession(sessionId: string, discussionId: string): void {
   const manifest: RuntimeSessionManifest = {
     schemaVersion: 1,

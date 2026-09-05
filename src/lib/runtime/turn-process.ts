@@ -13,6 +13,7 @@ export interface TurnRequest {
   model: string;
   cwd: string;
   dshBin?: string;
+  dshHome?: string;
   apiKey?: string;
   patches?: string[];
 }
@@ -32,6 +33,7 @@ function buildEnv(req: TurnRequest): NodeJS.ProcessEnv {
   env.BT_DSH_PROVIDER = req.provider;
   env.BT_DSH_MODEL = req.model;
   env.BT_DSH_CWD = req.cwd;
+  if (req.dshHome) env.BT_DSH_HOME = req.dshHome;
   if (req.dshBin) env.BT_DSH_BIN = req.dshBin;
   if (req.apiKey) { env.BT_DSH_API_KEY = req.apiKey; env.DEEPSEEK_API_KEY = req.apiKey; env.OPENAI_API_KEY = req.apiKey; env.ANTHROPIC_API_KEY = req.apiKey; }
   if (req.patches?.length) env.BT_DSH_PATCHES = req.patches.join(",");
@@ -52,7 +54,7 @@ function nodeBin(): string {
 /** spawn 独立进程运行一回合，解析 stdout JSON；失败抛错（带运行时错误信息） */
 export function runTurnViaProcess(req: TurnRequest): Promise<TurnResult> {
   const script = path.join(req.cwd, "scripts", "dsh-turn.mjs");
-  const child = spawn(nodeBin(), [script], {
+  const child = spawn(/* turbopackIgnore: true */ nodeBin(), [script], {
     cwd: req.cwd,
     env: buildEnv(req),
     stdio: ["ignore", "pipe", "pipe"],

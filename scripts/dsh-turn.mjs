@@ -6,7 +6,7 @@
  *
  * 输入（环境变量）：
  *   BT_DSH_SESSION_ID / BT_DSH_PROMPT / BT_DSH_PROVIDER / BT_DSH_MODEL
- *   BT_DSH_CWD / BT_DSH_BIN / BT_DSH_API_KEY / BT_DSH_PATCHES(逗号分隔)
+ *   BT_DSH_CWD / BT_DSH_HOME / BT_DSH_BIN / BT_DSH_API_KEY / BT_DSH_PATCHES(逗号分隔)
  * 输出：stdout 一个 JSON { ok, sessionId, finalResponse, error }
  * 失败以 exit 1 + JSON（error）。
  */
@@ -18,6 +18,7 @@ const prompt = e("BT_DSH_PROMPT");
 const provider = e("BT_DSH_PROVIDER", "deepseek-official");
 const model = e("BT_DSH_MODEL", "deepseek-v4-flash");
 const cwd = e("BT_DSH_CWD", process.cwd());
+const dshHome = e("BT_DSH_HOME") || undefined;
 const dshBin = e("BT_DSH_BIN") || undefined;
 const apiKey = e("BT_DSH_API_KEY") || undefined;
 const patches = (e("BT_DSH_PATCHES", "") || "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -26,13 +27,15 @@ const env = {};
 for (const k of ["PATH","Path","HOME","USERPROFILE","TEMP","TMP","TMPDIR","SystemRoot","SYSTEMROOT","COMSPEC","PATHEXT","WINDIR","LANG","LC_ALL","NODE_PATH","PWD","INIT_CWD","APPDATA","LOCALAPPDATA"]) {
   if (process.env[k]) env[k] = process.env[k];
 }
+if (sessionId) env.BT_DSH_SESSION_ID = sessionId;
+if (dshHome) env.BT_DSH_HOME = dshHome;
 if (apiKey) { env.DEEPSEEK_API_KEY = apiKey; env.BT_DSH_LLM_API_KEY = apiKey; env.OPENAI_API_KEY = apiKey; env.ANTHROPIC_API_KEY = apiKey; }
 
 function emit(obj) { process.stdout.write(JSON.stringify(obj)); }
 
 try {
   const h = new DeepSeekHarness({
-    profile: "sdk", provider, model, cwd, processCwd: cwd, dshBin, env,
+    profile: "sdk", provider, model, cwd, processCwd: cwd, dshBin, dshHome, env,
     ...(patches.length ? { patches } : {}), initializeTimeoutMs: 20_000,
   });
   await h.start();

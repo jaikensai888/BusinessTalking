@@ -22,6 +22,15 @@ import type { RuntimeProfile } from "./types";
 
 let manager: DshRuntimeManager | null = null;
 
+export interface DshTurnConfig {
+  profile: RuntimeProfile;
+  apiKey: string;
+  cwd: string;
+  dshBin?: string;
+  dshHome: string;
+  patches: string[];
+}
+
 /** 解析 `@deepseek-ai/dsh` 包的真实 CLI bin（相对项目，避免解析到桌面版） */
 export function resolveDshBin(cwd: string): string | undefined {
   try {
@@ -77,6 +86,34 @@ export function runtimeDshHome(cwd: string): string {
   return path.join(cwd, "data", "dsh-home");
 }
 
+/**
+ * 读取一次 DSH 回合所需的完整配置，但不启动常驻 Runtime。
+ * 独立回合进程必须把 sessionId 和对应 manifest 一起传给 DSH 子进程，
+ * 所以这里集中返回与生产 Runtime 相同的 bin/home/patch 配置。
+ */
+export async function getDshTurnConfig(): Promise<DshTurnConfig> {
+  const [provider, baseUrl, keyCipher, defaultModel] = await Promise.all([
+    getSetting("llm.provider"),
+    getSetting("llm.baseUrl"),
+    getSetting("llm.apiKey"),
+    getSetting("llm.defaultModel"),
+  ]);
+  const profile = buildRuntimeProfile({ provider, baseUrl, defaultModel } as ProfileInput);
+  const apiKey = keyCipher ? decrypt(keyCipher) : "";
+  if (!apiKey) throw new DshCredentialInvalidError();
+
+  const cwd = projectRoot();
+  const basePatch = path.join(cwd, "runtime", "dsh", "cordis.patch.yml");
+  return {
+    profile,
+    apiKey,
+    cwd,
+    dshBin: resolveDshBin(cwd),
+    dshHome: runtimeDshHome(cwd),
+    patches: [basePatch, ensurePluginPatch(cwd)],
+  };
+}
+
 /** 全局 Runtime manager（懒创建）。用项目 CLI + 干净 env，不触发桌面 Electron。 */
 export function getRuntimeManager(): DshRuntimeManager {
   if (!manager) {
@@ -101,31 +138,20 @@ export function getRuntimeManager(): DshRuntimeManager {
  * apiKey 解密后仅注入 child env（SDK 在 spawn 时读取），不落盘、不进 manifest/日志。
  */
 export async function ensureStartedForSettings(): Promise<RuntimeProfile> {
-  const [provider, baseUrl, keyCipher, defaultModel] = await Promise.all([
-    getSetting("llm.provider"),
-    getSetting("llm.baseUrl"),
-    getSetting("llm.apiKey"),
-    getSetting("llm.defaultModel"),
-  ]);
-
-  const profile = buildRuntimeProfile({ provider, baseUrl, defaultModel } as ProfileInput);
-
-  const apiKey = keyCipher ? decrypt(keyCipher) : "";
-  if (!apiKey) throw new DshCredentialInvalidError();
-
+  const config = await getDshTurnConfig();
   const mgr = getRuntimeManager();
   // 把解密后的 key 放进 child env（SDK spawn 时读取）；不写父进程 process.env。
   // deepseek-official 路由经由 DSH 凭据读取，这里同时覆盖常见 env 名以最大化命中。
   if (mgr.childEnv) {
-    mgr.childEnv.BT_DSH_LLM_API_KEY = apiKey;
-    mgr.childEnv.DEEPSEEK_API_KEY = apiKey;
-    mgr.childEnv.OPENAI_API_KEY = apiKey;
-    mgr.childEnv.ANTHROPIC_API_KEY = apiKey;
+    mgr.childEnv.BT_DSH_LLM_API_KEY = config.apiKey;
+    mgr.childEnv.DEEPSEEK_API_KEY = config.apiKey;
+    mgr.childEnv.OPENAI_API_KEY = config.apiKey;
+    mgr.childEnv.ANTHROPIC_API_KEY = config.apiKey;
   }
   // 诊断：打印实际启动配置（不含 secret）
-  console.error("[dsh-startup]", JSON.stringify({ provider: profile.provider, dshRoute: profile.dshRoute, model: profile.model, baseUrl: profile.baseUrl, cwd: process.cwd(), dshBin: resolveDshBin(projectRoot()), dshHome: runtimeDshHome(projectRoot()) }));
-  await mgr.ensureStarted(profile);
-  return profile;
+  console.error("[dsh-startup]", JSON.stringify({ provider: config.profile.provider, dshRoute: config.profile.dshRoute, model: config.profile.model, baseUrl: config.profile.baseUrl, cwd: config.cwd, dshBin: config.dshBin, dshHome: config.dshHome }));
+  await mgr.ensureStarted(config.profile);
+  return config.profile;
 }
 
 /** 关闭并清空 Runtime（Worker shutdown / drain 时调用） */

@@ -8,8 +8,7 @@
  * 职责：
  *  - 注册 SkillProvider：list/get 只返回当前 manifest 的 Persona profile + allowedSkills（fail-closed）。
  *  - 注册只读工具 read_skill_reference / web_search（禁副作用）。
- *  - manifest 从 data/dsh/manifests/<sessionId>.json 读取（sessionId 来自 env BT_DSH_SESSION_ID；
- *    生产应由 agent/session-start 的 agent id 决定——本实现先用 env/固定值做功能验证）。
+ *  - manifest 从 data/dsh/manifests/<sessionId>.json 读取（sessionId 来自 env BT_DSH_SESSION_ID）。
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -30,13 +29,30 @@ try {
 const MANIFESTS_ROOT = () => path.join(process.cwd(), "data", "dsh", "manifests");
 
 function sessionId() {
-  return process.env.BT_DSH_SESSION_ID || "bt-e2e";
+  const id = process.env.BT_DSH_SESSION_ID?.trim();
+  if (!id) throw new Error("DshManifestError: BT_DSH_SESSION_ID 未设置");
+  return id;
 }
 
 function loadManifest() {
   const file = path.join(MANIFESTS_ROOT(), `${sessionId()}.json`);
   if (!fs.existsSync(file)) throw new Error(`DshManifestError: 未找到 manifest ${file}`);
   return JSON.parse(fs.readFileSync(file, "utf8"));
+}
+
+function readPersonaSkill(manifest) {
+  const persona = manifest.persona;
+  if (!persona?.snapshotRoot || !persona.skillHash) {
+    throw new Error("DshManifestError: Persona manifest 缺少快照或 hash");
+  }
+  const root = path.resolve(process.cwd(), persona.snapshotRoot);
+  const file = path.resolve(root, "SKILL.md");
+  if (path.dirname(file) !== root) throw new Error("DshManifestError: Persona SKILL 路径越界");
+  if (!fs.existsSync(file)) throw new Error(`DshManifestError: 未找到 Persona SKILL ${file}`);
+  const content = fs.readFileSync(file, "utf8");
+  const hash = crypto.createHash("sha256").update(content).digest("hex");
+  if (hash !== persona.skillHash) throw new Error("DshManifestError: Persona SKILL hash 不匹配");
+  return content;
 }
 
 function text(v) {
@@ -140,6 +156,7 @@ function registerSkillProvider(ctx) {
       const m = loadManifest();
       if (candidate.locator.kind === "persona") {
         if (m.persona?.skillHash !== candidate.locator.hash) throw new Error("DshSkillNotAllowed: Persona hash 不匹配");
+        const skillContent = readPersonaSkill(m);
         return {
           name: candidate.name,
           description: candidate.description ?? "",
@@ -147,7 +164,7 @@ function registerSkillProvider(ctx) {
           source: candidate.source,
           provider: providerName,
           resourceBase: candidate.resourceBase,
-          content: `<persona ${m.persona.name}>\n${m.persona.systemPrompt}`,
+          content: `${skillContent}\n\n<persona ${m.persona.name}>\n${m.persona.systemPrompt}`,
         };
       }
       const skill = m.allowedSkills.find((s) => s.name === candidate.locator.name && s.contentHash === candidate.locator.contentHash);

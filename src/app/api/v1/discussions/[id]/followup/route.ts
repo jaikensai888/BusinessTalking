@@ -4,7 +4,7 @@ import { streamOneOnOneDsh } from "@/lib/discussion/oneonone-dsh";
 
 /**
  * POST /api/v1/discussions/:id/followup — 讨论结束后，请某个在讨论中的人格就整场讨论单独追问。
- * 走 DSH Runtime：使用该人物的 DSH Session 作为普通下一回合，不再手工拼接历史/Skill。
+ * 走 DSH Runtime：为本次追问创建独立回合，由 manifest 提供冻结的人格 Skill。
  */
 export async function POST(req: Request, ctx: RouteContext<"/api/v1/discussions/[id]/followup">) {
   const { id } = await ctx.params;
