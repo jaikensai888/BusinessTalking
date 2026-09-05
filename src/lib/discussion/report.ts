@@ -93,7 +93,7 @@ export async function saveReport(input: ReportInput): Promise<{ id: string; file
   fs.mkdirSync(dir, { recursive: true });
   const filename = `discussion-${input.id}-${slugify(input.brief)}.md`;
   const relPath = `${path.join("data", "reports", filename).split(path.sep).join("/")}`;
-  fs.writeFileSync(path.join(process.cwd(), relPath), md, "utf8");
+  fs.writeFileSync(path.join(/* turbopackIgnore: true */ process.cwd(), relPath), md, "utf8");
 
   const title = `多人讨论报告：${input.brief.slice(0, 30)}`;
   const summary = input.summary.replace(/\s+/g, " ").trim().slice(0, 80);

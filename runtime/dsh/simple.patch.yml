@@ -1,0 +1,3 @@
+- insert:
+    - id: bt-simple
+      name: './runtime/dsh-plugin/simple.mjs'

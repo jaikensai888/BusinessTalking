@@ -1,14 +1,18 @@
-import fs from "node:fs";
-import path from "node:path";
 import { err, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
+import { archiveDiscussion } from "@/lib/discussion/archive";
+import { parseDiscussionState } from "@/lib/discussion/state";
 
-/** GET /api/v1/discussions/:id — 讨论详情（消息流 + 产物列表） */
+/** GET /api/v1/discussions/:id — 讨论详情（消息流 + 产物 + 参与者/运行时/结构化状态） */
 export async function GET(_req: Request, ctx: RouteContext<"/api/v1/discussions/[id]">) {
   const { id } = await ctx.params;
   const d = await prisma.discussion.findUnique({
     where: { id },
-    include: { messages: { orderBy: { createdAt: "asc" } }, artifacts: { orderBy: { createdAt: "desc" } } },
+    include: {
+      messages: { orderBy: { createdAt: "asc" } },
+      artifacts: { orderBy: { createdAt: "desc" } },
+      participants: { orderBy: { createdAt: "asc" } },
+    },
   });
   if (!d) return err(40401, "讨论不存在", 404);
 
@@ -17,6 +21,7 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/v1/discussions/
     where: { id: { in: personaIds } },
     select: { id: true, name: true, perspectiveType: true },
   });
+  const state = d.discussionState ? parseDiscussionState(d.discussionState) : null;
 
   return ok({
     id: d.id,
@@ -25,10 +30,25 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/v1/discussions/
     rounds: d.rounds,
     status: d.status,
     summaryBox: d.summaryBox,
+    runtimeMode: d.runtimeMode,
+    stateVersion: d.stateVersion,
+    archivedAt: d.archivedAt,
+    purgeAt: d.purgeAt,
+    discussionState: state,
     attachmentName: d.attachmentName,
     attachmentCharCount: d.attachmentCharCount,
     attachmentTruncated: d.attachmentTruncated,
     personas: personas.map((p) => ({ id: p.id, name: p.name, perspectiveType: p.perspectiveType })),
+    participants: d.participants.map((p) => ({
+      id: p.id,
+      personaId: p.personaId,
+      dshSessionId: p.dshSessionId,
+      status: p.status,
+      lastEventSeq: p.lastEventSeq,
+      lastError: p.lastError,
+      personaSkillVersion: p.personaSkillVersion,
+      personaSkillHash: p.personaSkillHash,
+    })),
     messages: d.messages
       .filter((m) => m.role !== "skill") // 人格设定/参考资料为内部模型上下文，不随 GET 返回给前端
       .map((m) => ({
@@ -37,6 +57,7 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/v1/discussions/
         role: m.role,
         turn: m.turn,
         content: m.content,
+        attempt: m.attempt,
         createdAt: m.createdAt,
       })),
     artifacts: d.artifacts.map((a) => ({
@@ -51,26 +72,9 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/v1/discussions/
   });
 }
 
-/** DELETE /api/v1/discussions/:id — 删除一场讨论（级联消息/产物，并清理产物的 md 文件） */
+/** DELETE /api/v1/discussions/:id — 逻辑归档：写 status=archived + archivedAt + purgeAt */
 export async function DELETE(_req: Request, ctx: RouteContext<"/api/v1/discussions/[id]">) {
   const { id } = await ctx.params;
-  const d = await prisma.discussion.findUnique({
-    where: { id },
-    select: { id: true, artifacts: { select: { filePath: true } } },
-  });
-  if (!d) return err(40401, "讨论不存在", 404);
-
-  // 尽力清理数据目录下的产物 md 文件（不阻断删除）
-  for (const a of d.artifacts) {
-    if (!a.filePath) continue;
-    try {
-      const full = path.resolve(process.cwd(), a.filePath);
-      if (full.startsWith(path.resolve(process.cwd(), "data"))) fs.unlinkSync(full);
-    } catch {
-      /* ignore */
-    }
-  }
-
-  await prisma.discussion.delete({ where: { id } });
-  return ok({ deleted: true });
+  await archiveDiscussion(id);
+  return ok({ archived: true });
 }

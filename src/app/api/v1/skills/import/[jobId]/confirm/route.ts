@@ -1,8 +1,8 @@
 import { err, ok } from "@/lib/api";
-import { prisma } from "@/lib/db";
 import { getJob, refreshCandidates } from "@/lib/import/runner";
+import { installSkillBundle, DshSkillError } from "@/lib/skills/installation";
 
-/** POST /api/v1/skills/import/:jobId/confirm — 勾选候选入库（source=npx） */
+/** POST /api/v1/skills/import/:jobId/confirm — 勾选候选入库（source=npx，不可变安装） */
 export async function POST(req: Request, ctx: RouteContext<"/api/v1/skills/import/[jobId]/confirm">) {
   const { jobId } = await ctx.params;
   const job = getJob(jobId);
@@ -28,26 +28,24 @@ export async function POST(req: Request, ctx: RouteContext<"/api/v1/skills/impor
   for (const file of selectedFiles) {
     const candidate = byFile.get(file);
     if (!candidate) return err(40001, `未知的候选文件：${file}`, 400);
-    // 同名 skill 幂等：已存在则更新来源信息
-    const created = await prisma.skill.upsert({
-      where: { id: `npx-${Buffer.from(file).toString("base64url").slice(0, 40)}` },
-      update: {
-        description: candidate.description ?? undefined,
-        instructions: candidate.instructions,
-        source: "npx",
-        sourceRef: job.command,
-      },
-      create: {
-        id: `npx-${Buffer.from(file).toString("base64url").slice(0, 40)}`,
+    try {
+      const { skillId } = await installSkillBundle({
         name: candidate.name,
-        description: candidate.description,
-        instructions: candidate.instructions,
+        description: candidate.description ?? null,
+        version: candidate.version ?? null,
+        content: candidate.content,
         source: "npx",
         sourceRef: job.command,
-        isBuiltin: false,
-      },
-    });
-    imported.push({ id: created.id, name: created.name, source: "npx" });
+        resources: candidate.resources,
+        readResource: candidate.readResource,
+      });
+      imported.push({ id: skillId, name: candidate.name, source: "npx" });
+    } catch (e) {
+      if (e instanceof DshSkillError) {
+        return err(42201, e.message, 422);
+      }
+      throw e;
+    }
   }
 
   return ok({ imported });

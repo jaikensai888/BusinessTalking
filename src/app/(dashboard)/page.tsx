@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowUp,
@@ -66,6 +66,48 @@ function Chip({
  * 保持 Apple 克制风：单一 Action Blue / 无 emoji / 无紫色
  */
 export default function WorkspacePage() {
+  return (
+    <Suspense fallback={null}>
+      <WorkspaceContent />
+    </Suspense>
+  );
+}
+
+/** 从 SSE 流读取首帧 {type:"init", id, shortId} 的 id（1v1 创建讨论时 POST 返回 SSE）；
+ *  读不到 init（或首帧即 error）返回 null。 */
+async function readSseInitId(body: ReadableStream<Uint8Array>): Promise<string | null> {
+  try {
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buffer.indexOf("\n\n")) >= 0) {
+        const frame = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        const line = frame.split("\n").find((l) => l.startsWith("data:"));
+        if (!line) continue;
+        const payload = line.slice(5).trim();
+        if (!payload) continue;
+        try {
+          const evt = JSON.parse(payload);
+          if (evt.type === "init" && typeof evt.id === "string") return evt.id;
+          if (evt.type === "error") return null;
+        } catch {
+          continue;
+        }
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function WorkspaceContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [text, setText] = useState("");
@@ -249,6 +291,21 @@ export default function WorkspacePage() {
             : null,
         }),
       });
+      const ct = res.headers.get("content-type") ?? "";
+      // 1 对 1 + 首条消息：POST 返回 SSE 流（首帧 init 带 id），答案由服务端落库
+      if (ct.includes("text/event-stream") && res.body) {
+        const id = await readSseInitId(res.body);
+        if (!id) {
+          setError("创建讨论失败");
+          return;
+        }
+        setText("");
+        setSelectedRecipeId(null);
+        setAttachment(null);
+        setRefreshKey((k) => k + 1);
+        router.push(`/discussions?id=${id}`);
+        return;
+      }
       const d = await res.json();
       if (d.code === 0) {
         setText("");

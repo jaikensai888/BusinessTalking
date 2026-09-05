@@ -60,9 +60,10 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
   return (
     <aside
       className={cn(
-        "flex shrink-0 flex-col overflow-hidden border-r border-hairline bg-pearl transition-all duration-300 ease-out",
+        "sticky top-0 flex shrink-0 flex-col self-start overflow-hidden border-r border-hairline bg-pearl transition-all duration-300 ease-out",
         collapsed ? "w-0 border-r-0" : "w-56"
       )}
+      style={{ height: collapsed ? undefined : "calc(100vh - 44px)" }}
       aria-hidden={collapsed}
     >
       <nav aria-label="主导航" className="flex flex-col gap-1 px-3 py-5">

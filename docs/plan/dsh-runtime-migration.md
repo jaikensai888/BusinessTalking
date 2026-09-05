@@ -30,3 +30,6 @@ BusinessTalking UI/API/Prisma
 
 验证 DSH 是否能改善“人格对话 + 联网研究 + 可恢复 Session”这条链路；在验证完成前保留现有 AI SDK 实现作为 fallback。
 
+## 相关设计
+
+- [1v1 讨论：DSH Runtime 人格与参考资料加载设计](./1v1-discussion-dsh-skill-loading.md)

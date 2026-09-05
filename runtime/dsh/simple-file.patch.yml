@@ -1,0 +1,3 @@
+- insert:
+    - id: bt-simple
+      name: 'file:///G:/claude_project/code-agent/business-talking/runtime/dsh-plugin/simple.mjs'

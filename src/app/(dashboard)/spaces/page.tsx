@@ -23,7 +23,7 @@ export default function SpacesPage() {
   };
 
   const deleteOne = async (type: "discussion" | "run", id: string) => {
-    if (!window.confirm("确定删除这个会话吗？删除后不可恢复。")) return;
+    if (!window.confirm(type === "discussion" ? "确定归档这个会话吗？将移出列表，可恢复。" : "确定删除这个会话吗？删除后不可恢复。")) return;
     setDeleting(true);
     setError(null);
     try {
@@ -40,24 +40,28 @@ export default function SpacesPage() {
 
   const deleteMany = async () => {
     if (selected.size === 0) return;
-    if (!window.confirm(`确定删除选中的 ${selected.size} 个会话吗？删除后不可恢复。`)) return;
+    if (!window.confirm(`确定删除选中的 ${selected.size} 个会话吗？讨论将归档（可恢复），分析运行将永久删除。`)) return;
     setDeleting(true);
     setError(null);
+    const failures: string[] = [];
     for (const key of selected) {
       const sep = key.indexOf(":");
       const type = key.slice(0, sep);
       const id = key.slice(sep + 1);
       if (!id) continue;
       try {
-        await fetch(`/api/v1/${type === "discussion" ? "discussions" : "runs"}/${id}`, { method: "DELETE" });
+        const res = await fetch(`/api/v1/${type === "discussion" ? "discussions" : "runs"}/${id}`, { method: "DELETE" });
+        const d = await res.json();
+        if (d.code !== 0) failures.push(d.message ?? "删除失败");
       } catch {
-        /* ignore individual failures */
+        failures.push("删除失败");
       }
     }
     setSelected(new Set());
     setSelectionMode(false);
-    setRefreshKey((k) => k + 1);
     setDeleting(false);
+    setRefreshKey((k) => k + 1);
+    if (failures.length > 0) setError(`部分会话删除失败：${Array.from(new Set(failures)).join("；")}`);
   };
 
   return (

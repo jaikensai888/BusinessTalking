@@ -1,14 +1,11 @@
-import { generateText } from "ai";
 import { err, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { buildModel } from "@/lib/llm/providers";
-import { normalizeProvider } from "@/lib/llm/constants";
-import { decrypt } from "@/lib/settings/encryption";
-import { getSetting } from "@/lib/settings/store";
-import { llmTimeoutMs } from "@/lib/llm/timeout";
 import { saveReport } from "@/lib/discussion/report";
+import { parseDiscussionState } from "@/lib/discussion/state";
 
-/** POST /api/v1/discussions/:id/summary — 生成综合建议并汇总成一份报告（保存为 md 产物） */
+/** POST /api/v1/discussions/:id/summary — 用结构化 DiscussionState 生成综合建议报告投影。
+ *  数据源：多人讨论由 Moderator 产出的 DiscussionState；无 state 时回退 summaryBox。
+ */
 export async function POST(_req: Request, ctx: RouteContext<"/api/v1/discussions/[id]/summary">) {
   const { id } = await ctx.params;
   const d = await prisma.discussion.findUnique({
@@ -16,39 +13,17 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/v1/discussions
     include: { messages: { orderBy: { createdAt: "asc" } } },
   });
   if (!d) return err(40401, "讨论不存在", 404);
-  if (!d.summaryBox) return err(40001, "讨论尚未产生内容", 400);
 
-  const [providerRaw, baseUrl, keyCipher, modelRaw, timeoutRaw] = await Promise.all([
-    getSetting("llm.provider"),
-    getSetting("llm.baseUrl"),
-    getSetting("llm.apiKey"),
-    getSetting("llm.defaultModel"),
-    getSetting("llm.timeoutSeconds"),
-  ]);
-  const provider = normalizeProvider(providerRaw);
-  const apiKey = keyCipher ? decrypt(keyCipher) : "";
-  if (!apiKey) return err(50201, "未配置有效的 API Key", 502);
+  // 从结构化 state 投影；会话刚开始（无 summary）时退出
+  const state = d.discussionState ? parseDiscussionState(d.discussionState) : null;
+  const content = state?.summary?.trim() || d.summaryBox?.trim() || "";
+  if (!content) return err(40001, "讨论尚未产生内容", 400);
 
   const personaIds = (d.personaIds as string[]) ?? [];
   const personas = await prisma.persona.findMany({
     where: { id: { in: personaIds } },
     select: { name: true, perspectiveType: true },
   });
-
-  let content: string;
-  try {
-    const modelObj = buildModel(provider, apiKey, modelRaw ?? "", baseUrl || undefined);
-    const { text } = await generateText({
-      model: modelObj,
-      system:
-        "你是一位资深商业顾问。综合多位专家在讨论中提出的观点，给出一份可执行、有优先级、有分歧说明的综合建议。建议包含：核心结论、关键论据、分歧点、下一步建议。",
-      prompt: `【讨论要点】\n${d.summaryBox}\n\n请给出综合建议。`,
-      abortSignal: AbortSignal.timeout(llmTimeoutMs(timeoutRaw)),
-    });
-    content = text.trim() || "（未能生成建议）";
-  } catch (e) {
-    content = `（生成建议失败：${e instanceof Error ? e.message : String(e)}）`;
-  }
 
   // 汇总成一份报告并保存为 md 产物（失败不阻断建议本身）
   let artifact: { id: string; filePath: string; title: string; summary: string } | null = null;
@@ -74,5 +49,5 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/v1/discussions
     data: { status: personaIds.length === 1 ? "ready" : "done" },
   });
 
-  return ok({ content, artifact });
+  return ok({ content, artifact, stateVersion: d.stateVersion });
 }

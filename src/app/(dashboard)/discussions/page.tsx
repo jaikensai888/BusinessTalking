@@ -1,9 +1,10 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "react";
+import { Fragment, Suspense, useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import { ArrowUp, ChatCircleDots, FilePdf, FileText, PaperPlaneTilt, Plus, SpinnerGap, UsersThree, X } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
+import { getOneOnOneFailure, hasNewPersonaReply, isOneOnOneReplyPending } from "@/lib/discussion/live-state";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -13,12 +14,14 @@ import { Markdown } from "@/components/ui/markdown";
 interface PersonaOption { id: string; name: string; perspectiveType: string }
 interface Msg { id: string; sender: string; role: string; turn: number; content: string; createdAt: string; streaming?: boolean }
 interface Artifact { id: string; title: string; type: string; filePath?: string | null; summary?: string | null; content: string; createdAt: string }
+interface ParticipantState { id: string; personaId: string; status: string; lastError?: string | null }
 interface Discussion {
   id: string;
   brief: string;
   rounds: number;
   status: string;
   personas: PersonaOption[];
+  participants?: ParticipantState[];
   messages: Msg[];
   artifacts?: Artifact[];
   attachmentName?: string | null;
@@ -44,10 +47,12 @@ function dayLabel(iso: string): string {
 }
 
 /** 多人讨论室（微信群聊式）：参与者列表 + 微信气泡流；可插话、综合建议 */
-export default function DiscussionsPage() {
+function DiscussionsContent() {
   const searchParams = useSearchParams();
   const viewId = searchParams.get("id");
   const [personas, setPersonas] = useState<PersonaOption[]>([]);
+  const [skills, setSkills] = useState<{ id: string; name: string; version: string }[]>([]);
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [brief, setBrief] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [rounds, setRounds] = useState(5);
@@ -58,7 +63,9 @@ export default function DiscussionsPage() {
   const [sending, setSending] = useState(false);
   const [summarizing, setSummarizing] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const replyPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const streamAbortRef = useRef<AbortController | null>(null);
+  const steerStreamingRef = useRef(false); // 1v1 / 追问 流式期间为 true，避免 /stream 的 change 覆盖乐观气泡
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const steerRef = useRef<HTMLInputElement | null>(null);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
@@ -75,7 +82,23 @@ export default function DiscussionsPage() {
       .then((d) => {
         if (d.code === 0) setPersonas(d.data.items);
       });
+    // 已安装 Skill revision（讨论可勾选为普通技能，作为 DSH allowlist）
+    fetch("/api/v1/skills?page_size=100")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.code !== 0) return;
+        const revs: { id: string; name: string; version: string }[] = [];
+        for (const s of d.data.items as { name?: string; revisions?: { id?: string; version?: string; hasPackage?: boolean }[] }[]) {
+          for (const r of s.revisions ?? []) {
+            if (r.id && r.hasPackage) revs.push({ id: r.id, name: s.name ?? "skill", version: r.version ?? "" });
+          }
+        }
+        setSkills(revs);
+      });
   }, []);
+
+  const toggleSkill = (id: string) =>
+    setSelectedSkills((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
   const toggle = (id: string) =>
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -126,6 +149,7 @@ export default function DiscussionsPage() {
           brief,
           personaIds: selected,
           rounds,
+          skillRevisionIds: selectedSkills,
           attachment: attachment
             ? { filename: attachment.filename, charCount: attachment.charCount, truncated: attachment.truncated }
             : null,
@@ -149,18 +173,39 @@ export default function DiscussionsPage() {
       clearInterval(pollRef.current);
       pollRef.current = null;
     }
+    if (replyPollRef.current) {
+      clearInterval(replyPollRef.current);
+      replyPollRef.current = null;
+    }
     streamAbortRef.current?.abort();
     streamAbortRef.current = null;
   }
 
   const load = async (id: string) => {
     try {
-      const res = await fetch(`/api/v1/discussions/${id}`);
+      const res = await fetch(`/api/v1/discussions/${id}`, { cache: "no-store" });
       const d = await res.json();
       if (d.code === 0) {
         setCurrent(d.data);
-        // 只在"生成中"(pending/running)时保持实时通道；单人生成完置 ready、多人结束 done/failed 即停
-        const active = d.data.status === "pending" || d.data.status === "running";
+        const oneOnOne = (d.data.personas?.length ?? 0) === 1;
+        const failure = getOneOnOneFailure(d.data);
+        if (failure) {
+          setError(failure);
+          setSending(false);
+          stopLive();
+          return;
+        }
+        const oneOnOnePending = isOneOnOneReplyPending(d.data);
+        // 1v1 生成期间 status 仍可能是 ready，必须根据最后一条消息决定是否继续同步。
+        const active = d.data.status === "pending" || d.data.status === "running" || oneOnOnePending;
+        if (oneOnOnePending || (oneOnOne && d.data.status === "running")) {
+          setSending(true);
+          // SSE 只是加速通知；pending 的 1v1 同时保留数据库轮询，避免浏览器丢事件。
+          if (!pollRef.current) startPolling(id);
+        } else if (oneOnOne) {
+          setSending(false);
+          setError(null);
+        }
         if (!active) stopLive();
       }
     } catch {
@@ -175,6 +220,47 @@ export default function DiscussionsPage() {
     void load(id);
   }
 
+  // 1v1/追问：轮询数据库直到「人格回复出现」再停止。这是不依赖 SSE 的兜底，
+  // 因为回复一定已落库（后端先持久化再返回流），所以无论浏览器/时序怎样都能显示。
+  function startReplyPoll(id: string, previousReplyCount: number) {
+    if (replyPollRef.current) clearInterval(replyPollRef.current);
+    const started = Date.now();
+    let inFlight = false;
+    const poll = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const res = await fetch(`/api/v1/discussions/${id}`, { cache: "no-store" });
+        const d = await res.json();
+        if (d.code !== 0) return;
+        setCurrent(d.data);
+        const failure = getOneOnOneFailure(d.data);
+        if (failure) {
+          setError(failure);
+          setSending(false);
+          stopLive();
+          return;
+        }
+        // 不能检查“是否存在 persona 回复”，因为历史回合本来就有 persona 回复。
+        const hasReply = hasNewPersonaReply(d.data.messages ?? [], previousReplyCount);
+        // 出现本轮人格回复，或超时（90s）→ 停止并结束“正在思考”
+        if (hasReply || Date.now() - started > 90_000) {
+          if (replyPollRef.current) clearInterval(replyPollRef.current);
+          replyPollRef.current = null;
+          setSending(false);
+        }
+      } catch {
+        /* ignore，继续轮询 */
+      } finally {
+        inFlight = false;
+      }
+    };
+    void poll();
+    replyPollRef.current = setInterval(async () => {
+      await poll();
+    }, 2000);
+  }
+
   // 用 SSE 实时订阅讨论进展：每次后端 publish 就收到 {type:"change"}，回源拉取最新状态；
   // SSE 断开（非我们主动关闭）时自动退回轮询兜底。
   function connectLive(id: string) {
@@ -187,7 +273,7 @@ export default function DiscussionsPage() {
     streamAbortRef.current = ctrl;
     void (async () => {
       try {
-        const res = await fetch(`/api/v1/discussions/${id}/stream`, { signal: ctrl.signal });
+        const res = await fetch(`/api/v1/discussions/${id}/stream`, { signal: ctrl.signal, cache: "no-store" });
         if (!res.ok || !res.body) throw new Error("stream unavailable");
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
@@ -210,7 +296,10 @@ export default function DiscussionsPage() {
             } catch {
               continue;
             }
-            if (evt.type === "change") void load(id);
+            if (evt.type === "change") {
+              // 1v1/追问流式期间：不覆盖乐观流式气泡，交由 /steer 流结束后的 load 同步
+              if (!steerStreamingRef.current) void load(id);
+            }
           }
         }
       } catch {
@@ -244,6 +333,9 @@ export default function DiscussionsPage() {
     if (!current || !steer.trim() || sending) return;
     const question = steer;
     const discussionId = current.id;
+    const previousReplyCount = current.messages.filter(
+      (message) => message.role === "persona" && (message.content ?? "").trim().length > 0
+    ).length;
     setSteer("");
 
     // 讨论结束后的单独追问：向某人格带上下文提问，SSE 逐字流式
@@ -268,6 +360,7 @@ export default function DiscussionsPage() {
       setCurrent((prev) => (prev ? { ...prev, messages: [...prev.messages, optimistic, aiMsg] } : prev));
       setSending(true);
       setError(null);
+      steerStreamingRef.current = true;
       // 用「最后一条」定位流式中的助手气泡（引用会被替换，不能靠对象相等）
       const patchLast = (fn: (m: Msg) => Msg) =>
         setCurrent((prev) => {
@@ -339,7 +432,8 @@ export default function DiscussionsPage() {
         setError("追问失败");
         removeLast();
       } finally {
-        setSending(false);
+        steerStreamingRef.current = false;
+        startReplyPoll(discussionId, previousReplyCount); // 追问也等到本轮回复出现
       }
       return;
     }
@@ -378,6 +472,7 @@ export default function DiscussionsPage() {
         setCurrent((prev) =>
           prev ? { ...prev, messages: prev.messages.slice(0, Math.max(0, prev.messages.length - 1)) } : prev
         );
+      steerStreamingRef.current = true;
       try {
         const res = await fetch(`/api/v1/discussions/${discussionId}/steer`, {
           method: "POST",
@@ -432,12 +527,13 @@ export default function DiscussionsPage() {
             }
           }
         }
-        void load(discussionId); // 与库同步，取回真实 id
       } catch {
-        setError("发送失败");
-        removeLast();
+        // SSE/网络中断：不删乐观气泡，交给 finally 的 load() 回源同步（若后端已生成回复则显示）
+        setError("发送中断，正在同步…");
       } finally {
-        setSending(false);
+        steerStreamingRef.current = false;
+        // 不在此处关“正在思考”：交给 startReplyPoll 轮询数据库，直到人格回复出现
+        startReplyPoll(discussionId, previousReplyCount);
       }
       return;
     }
@@ -593,6 +689,30 @@ export default function DiscussionsPage() {
               );
             })}
           </div>
+
+          {/* 普通技能（可选，作为 DSH allowlist） */}
+          {skills.length > 0 && (
+            <div className="mt-3">
+              <div className="mb-1.5 text-[12px] font-medium text-ink-48">可选技能（运行时按需加载，作为当前讨论的 allowlist）</div>
+              <div className="flex flex-wrap gap-2">
+                {skills.map((s) => {
+                  const on = selectedSkills.includes(s.id);
+                  return (
+                    <button
+                      key={s.id}
+                      onClick={() => toggleSkill(s.id)}
+                      className={cn(
+                        "rounded-full border px-3 py-1 text-[12px] transition-colors",
+                        on ? "border-primary bg-primary/10 text-primary" : "border-hairline text-ink-60 hover:border-primary/40"
+                      )}
+                    >
+                      {s.name} <span className="opacity-60">· {s.version}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <div className="mt-4 flex items-center justify-between">
             <div className="flex items-center gap-2 text-[13px] text-ink-60">
               {selected.length === 1 ? (
@@ -618,7 +738,7 @@ export default function DiscussionsPage() {
               {starting ? "创建中…" : selected.length === 1 ? "开始交流" : "开始讨论"}
             </Button>
           </div>
-          {error && <p className="mt-2 text-[13px] text-error">{error}</p>}
+          {error && !current && <p className="mt-2 text-[13px] text-error">{error}</p>}
         </div>
       )}
 
@@ -633,9 +753,15 @@ export default function DiscussionsPage() {
           <div className="h-48 animate-pulse rounded-2xl bg-pearl" />
         )
       ) : (
-        <div className="flex h-full">
-          {/* 左列：聊天（无顶部标题栏） */}
-          <div className="flex min-w-0 flex-1 flex-col">
+          <div className="flex h-full">
+            {/* 左列：聊天（无顶部标题栏） */}
+            <div className="flex min-w-0 flex-1 flex-col">
+              {error && (
+                <div role="alert" className="mx-4 mt-3 rounded-xl border border-error/20 bg-error/5 px-4 py-3 text-[13px] text-error">
+                  <div className="font-medium">本次回答未完成</div>
+                  <div className="mt-1 break-words text-[12px] leading-5">{error}</div>
+                </div>
+              )}
               <div
                 ref={scrollRef}
                 className="flex-1 space-y-6 overflow-y-auto bg-parchment px-6 py-6"
@@ -709,7 +835,7 @@ export default function DiscussionsPage() {
                     <PaperPlaneTilt size={14} className="animate-pulse" /> 讨论中…
                   </div>
                 )}
-                {isOne && thinking && (
+                {isOne && (thinking || sending) && (
                   <div className="flex items-center gap-2 py-1 text-[12px] text-ink-40">
                     <ChatCircleDots size={14} className="animate-pulse" /> {current.personas?.[0]?.name ?? "专家"} 正在思考…
                   </div>
@@ -965,5 +1091,14 @@ export default function DiscussionsPage() {
         }}
       />
     </div>
+  );
+}
+
+// useSearchParams() 需在页面内包一层 <Suspense>（Next 16 预渲染要求）
+export default function DiscussionsPage() {
+  return (
+    <Suspense fallback={null}>
+      <DiscussionsContent />
+    </Suspense>
   );
 }

@@ -10,8 +10,11 @@ export interface ImportCandidate {
   file: string;
   name: string;
   description: string | null;
-  instructions: string;
+  version: string | null;
+  content: string; // 完整 SKILL.md 正文
+  resources: string[]; // references/、examples/ 下相对路径
   sourceRef: string;
+  readResource?: (rel: string) => string | null;
 }
 
 export interface ImportJob {

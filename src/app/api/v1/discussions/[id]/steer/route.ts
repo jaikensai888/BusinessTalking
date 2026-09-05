@@ -1,6 +1,6 @@
 import { err, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { streamOneOnOne } from "@/lib/discussion/oneonone";
+import { streamOneOnOneDsh } from "@/lib/discussion/oneonone-dsh";
 
 /** POST /api/v1/discussions/:id/steer — 用户插话/提问 */
 export async function POST(req: Request, ctx: RouteContext<"/api/v1/discussions/[id]/steer">) {
@@ -19,13 +19,12 @@ export async function POST(req: Request, ctx: RouteContext<"/api/v1/discussions/
 
   const personaIds = (d.personaIds as string[]) ?? [];
 
-  // 单人（1 对 1）讨论：你问我答——用户每发一条，该人设立即流式作答（SSE 逐字）。
+  // 单人（1 对 1）讨论：你问我答——用户每发一条，该人设立即流式作答（SSE）。
   if (personaIds.length === 1) {
     await prisma.discussionMessage.create({
       data: { discussionId: id, role: "user", sender: "你", turn: 0, content: message },
     });
-    // 直接返回 SSE 流：streamOneOnOne 内部按需加载完整人格设定、组装精简 system、逐字推送并落库完整回复。
-    return streamOneOnOne(id, personaIds[0], message);
+    return streamOneOnOneDsh(id, personaIds[0], message);
   }
 
   // 多人讨论：仅记录，由运行引擎在下一轮消费

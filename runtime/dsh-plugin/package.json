@@ -1,0 +1,12 @@
+{
+  "name": "business-talking-dsh",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "index.mjs",
+  "description": "BusinessTalking scoped DSH plugin: allowlist SkillProvider, persona prompt, read-only tools.",
+  "peerDependencies": {
+    "@deepseek-ai/dsh-skill": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-tools": "0.1.2-rc.1"
+  }
+}

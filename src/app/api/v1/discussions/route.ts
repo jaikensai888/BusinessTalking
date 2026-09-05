@@ -1,8 +1,8 @@
 import { Prisma } from "@prisma/client";
 import { err, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { runDiscussion } from "@/lib/discussion/runner";
-import { streamOneOnOne } from "@/lib/discussion/oneonone";
+import { runDiscussion } from "@/lib/discussion/orchestrator";
+import { streamOneOnOneDsh } from "@/lib/discussion/oneonone-dsh";
 import { genShortId } from "@/lib/short-id";
 
 /** POST /api/v1/discussions — 创建多人讨论（异步推进）；message = 用户首条提问 */
@@ -12,6 +12,7 @@ export async function POST(req: Request) {
     personaIds?: unknown;
     rounds?: unknown;
     message?: unknown;
+    skillRevisionIds?: unknown;
     attachment?: { filename?: unknown; charCount?: unknown; truncated?: unknown };
   };
   try {
@@ -26,11 +27,22 @@ export async function POST(req: Request) {
     : [];
   const rounds = Math.min(10, Math.max(1, Number(body.rounds ?? 5) || 5));
   const message = typeof body.message === "string" ? body.message.trim() : "";
+  const skillRevisionIds = Array.isArray(body.skillRevisionIds)
+    ? body.skillRevisionIds.filter((x): x is string => typeof x === "string")
+    : [];
 
   if (!brief || brief.length > 10000) return err(40001, "brief 必填（1~10000 字符）", 400);
   if (personaIds.length < 1) return err(40001, "至少选择 1 个人格参与讨论", 400);
   const count = await prisma.persona.count({ where: { id: { in: personaIds } } });
   if (count !== personaIds.length) return err(40001, "存在不存在的人格", 400);
+
+  // 校验普通 Skill：只能引用已安装、未卸载的不可变 revision（allowlist）
+  for (const rid of skillRevisionIds) {
+    const rev = await prisma.skillRevision.findUnique({ where: { id: rid } });
+    if (!rev || !rev.packageRoot) {
+      return err(42201, `Skill revision 不存在或不可用：${rid}`, 422);
+    }
+  }
 
   const attachmentName =
     body.attachment && typeof body.attachment.filename === "string" ? body.attachment.filename.slice(0, 200) : null;
@@ -61,8 +73,23 @@ export async function POST(req: Request) {
       attachmentCharCount,
       attachmentTruncated,
       shortId,
+      runtimeMode: "dsh",
     },
   });
+
+  // 每个参与人格生成稳定 dshSessionId；不在创建接口直接启动 DSH 进程
+  for (const personaId of personaIds) {
+    const dshSessionId = `bt-discussion-${d.id}-${personaId}`;
+    await prisma.discussionParticipant.create({
+      data: { discussionId: d.id, personaId, dshSessionId, status: "pending" },
+    });
+  }
+  // 写入 allowlist：普通 Skill 只能来自当前讨论选择并已安装的不可变 revision
+  for (const rid of skillRevisionIds) {
+    await prisma.discussionSkill.create({
+      data: { discussionId: d.id, skillRevisionId: rid },
+    });
+  }
 
   // 把用户在输入框里的提问作为第一条消息带进讨论，人设可据此作答
   const hasFirstMessage = Boolean(message);
@@ -70,9 +97,9 @@ export async function POST(req: Request) {
     await prisma.discussionMessage.create({
       data: { discussionId: d.id, role: "user", sender: "你", turn: 0, content: message },
     });
-    // 单人：直接返回 SSE 流式答复（首帧 init 带 id/shortId），streamOneOnOne 内部会落库完整回复。
+    // 单人：直接返回 SSE 流式答复（首帧 init 带 id/shortId），DSH 内部落库完整回复。
     if (isOneOnOne) {
-      return streamOneOnOne(d.id, personaIds[0], message, { id: d.id, shortId });
+      return streamOneOnOneDsh(d.id, personaIds[0], message, { id: d.id, shortId });
     }
   }
 
@@ -90,11 +117,12 @@ export async function POST(req: Request) {
   });
 }
 
-/** GET /api/v1/discussions — 最近讨论列表（支持 page_size） */
+/** GET /api/v1/discussions — 最近讨论列表（支持 page_size；过滤已归档） */
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const pageSize = Math.min(100, Math.max(1, Number(url.searchParams.get("page_size") ?? 30) || 30));
   const items = await prisma.discussion.findMany({
+    where: { archivedAt: null }, // 逻辑归档：列表隐藏已归档，可经 restore 恢复
     orderBy: { createdAt: "desc" },
     take: pageSize,
     select: {

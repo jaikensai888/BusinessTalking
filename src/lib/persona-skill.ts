@@ -5,7 +5,7 @@ import path from "node:path";
 export function readSkillMd(skillPath: string | null | undefined): string | null {
   if (!skillPath) return null;
   try {
-    return fs.readFileSync(path.join(process.cwd(), skillPath), "utf8");
+    return fs.readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ process.cwd(), skillPath), "utf8");
   } catch {
     return null;
   }
@@ -14,7 +14,7 @@ export function readSkillMd(skillPath: string | null | undefined): string | null
 /** 列出人物 skill 目录下的参考文档（references/ + examples/ 中的 .md，不含 SKILL.md） */
 export function listReferences(skillPath: string | null | undefined): { name: string; rel: string }[] {
   if (!skillPath) return [];
-  const base = path.resolve(process.cwd(), path.dirname(skillPath));
+  const base = path.resolve(/* turbopackIgnore: true */ process.cwd(), path.dirname(skillPath));
   const out: { name: string; rel: string }[] = [];
 
   const walk = (dir: string, rel: string) => {
@@ -43,8 +43,8 @@ export function listReferences(skillPath: string | null | undefined): { name: st
 /** 读取某个参考文档内容（限定在 skill 目录内，防目录穿越） */
 export function readRef(skillPath: string | null | undefined, refRel: string): string | null {
   if (!skillPath) return null;
-  const base = path.resolve(process.cwd(), path.dirname(skillPath));
-  const full = path.resolve(base, refRel);
+  const base = path.resolve(/* turbopackIgnore: true */ process.cwd(), path.dirname(skillPath));
+  const full = path.resolve(/* turbopackIgnore: true */ base, refRel);
   if (!full.startsWith(base)) return null;
   try {
     return fs.readFileSync(full, "utf8");

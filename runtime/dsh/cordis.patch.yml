@@ -1,0 +1,35 @@
+# BusinessTalking DSH runtime patch — 关闭默认 skill/web/副作用工具。
+# 插件插入由 src/lib/runtime/singleton.ts 运行时用 pathToFileURL 动态生成（可移植），
+# 因为相对路径在 pnpm 布局的 dsh 运行时下无法装载，故必须用绝对 file:// 路径。
+# 基于 `dsh --profile sdk --dump-config` 的真实 id。应用顺序在 profile 层之后。
+
+# 默认 filesystem Skill provider：关闭，只暴露 BT scoped provider 的 allowlist
+- id: skill-filesystem
+  disabled: true
+
+# 网络工具：关闭默认 web，只保留 BT 只读 web_search（走内部 endpoint）
+- id: tool-web
+  disabled: true
+- id: web-search-deepseek
+  disabled: true
+- id: web-fetch-http
+  disabled: true
+
+# 副作用/外部工具：一律关闭
+- id: tool-bash
+  disabled: true
+- id: tool-goal
+  disabled: true
+- id: tool-todo
+  disabled: true
+- id: tool-workflow
+  disabled: true
+- id: tool-jobs
+  disabled: true
+
+# 未使用的 provider route：避免 DSH 默认 provider 抢占
+- id: llm-deepseek
+  disabled: true
+
+# ⚠️ 不能禁用 subagent：dsh-subagent-spawn-in-process 依赖它就报“8 entries did not activate”。
+#   第一阶段对 subagent 事件只记录、不启用 roster（由 BusinessTalking 侧控制），而非 patch 层 disable。

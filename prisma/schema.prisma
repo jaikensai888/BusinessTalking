@@ -66,6 +66,7 @@ model Skill {
 
   steps     RecipeStep[]
   feedbacks Feedback[]
+  revisions SkillRevision[]
 
   @@index([category])
   @@index([name])
@@ -232,19 +233,36 @@ model Discussion {
   brief      String
   rounds     Int      @default(5)
   personaIds          Json      // 参与人格 id 列表
-  status              String    @default("pending") // pending | running | ready | done | failed
+  status              String    @default("pending") // pending | running | ready | done | failed | archived
   summaryBox          String?   // 共享纪要（跨人格的浓缩要点）
   attachmentName      String?   // 引用的文件（上传资料）文件名
   attachmentCharCount Int?      // 引用的文件提取字符数
   attachmentTruncated Boolean?  // 引用的文件是否被截取
   shortId             String?   @unique // 便于引用/排查的短编号（如 RW3K9Q）
+
+  // ---- DSH Runtime 运行时字段（新 DSH 路径使用；旧字段保留兼容） ----
+  runtimeMode          String    @default("dsh") // dsh | legacy-ai-sdk
+  runtimeProfile       Json?     // { provider, model, baseUrl?, profileHash }
+  discussionState      Json?     // DiscussionState（结构化状态，事实来源）
+  stateVersion         Int       @default(0)
+  moderatorSessionId   String?
+  moderatorStatus      String?   // idle | running | completed | failed
+  moderatorLastEventSeq Int      @default(0)
+  archivedAt           DateTime?
+  purgeAt              DateTime?
+
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
-  messages   DiscussionMessage[]
-  artifacts  DiscussionArtifact[]
+  messages            DiscussionMessage[]
+  artifacts           DiscussionArtifact[]
+  participants        DiscussionParticipant[]
+  skills              DiscussionSkill[]
+  agentEvents         AgentEvent[]
+  turns               DiscussionTurn[]
 
   @@index([status])
+  @@index([archivedAt])
 }
 
 model DiscussionMessage {
@@ -252,14 +270,20 @@ model DiscussionMessage {
   discussionId String
   personaId    String?  // null = 用户插话 / 综合建议
   sender       String   // 显示名：人格名 / 你 / 综合建议
-  role         String   // persona | user | summary
+  role         String   // persona | user | summary | skill
   turn         Int
   content      String
+  // ---- DSH 投影字段 ----
+  participantId String? // 对应 DiscussionParticipant
+  sessionId     String? // 对应 DSH Session
+  attempt       Int      @default(1)
+  sourceEventId String? // 对应 AgentEvent 的最终 assistant/message 事件 id
   createdAt    DateTime @default(now())
 
   discussion Discussion @relation(fields: [discussionId], references: [id], onDelete: Cascade)
 
   @@index([discussionId])
+  @@index([discussionId, role])
 }
 
 // 讨论产物（报告/文档）：综合建议等汇总后保存为可下载的 md 文件，列入讨论下方的“产物”列表
@@ -276,4 +300,108 @@ model DiscussionArtifact {
   discussion Discussion @relation(fields: [discussionId], references: [id], onDelete: Cascade)
 
   @@index([discussionId])
+}
+
+// ---------- DSH Runtime 迁移新增 ----------
+
+// 不可变 Skill 内容版本：Skill 保留为逻辑名与 Recipe 兼容记录，正文/资源进入 revision
+model SkillRevision {
+  id           String   @id @default(cuid())
+  skillId      String
+  name         String   // kebab-case，作为 DSH skill name
+  version      String   // semver 或 0.0.0+<hash12>
+  contentHash  String   // 完整 SKILL.md 的 sha256
+  description  String?
+  instructions String   // 完整正文，不再截断
+  packageRoot  String?  // data/skill-library/<name>/<version>
+  source       String   @default("builtin") // builtin | npx | manual
+  sourceRef    String?
+  manifest     Json?    // frontmatter、资源索引与安装元数据
+  installedAt  DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  skill       Skill             @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  discussions DiscussionSkill[]
+
+  @@unique([name, version])
+  @@unique([name, contentHash])
+  @@index([skillId])
+  @@index([contentHash])
+}
+
+// 一个讨论的参与者（每人一个稳定 DSH Session）
+model DiscussionParticipant {
+  id                  String   @id @default(cuid())
+  discussionId        String
+  personaId           String
+  dshSessionId        String   @unique
+  personaSkillVersion String?
+  personaSkillHash    String?
+  personaSnapshotRoot String?
+  status              String   @default("pending") // pending | running | completed | failed | archived
+  lastEventSeq        Int      @default(0)
+  lastError           String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  discussion Discussion @relation(fields: [discussionId], references: [id], onDelete: Cascade)
+
+  @@unique([discussionId, personaId])
+  @@index([discussionId])
+  @@index([personaId])
+}
+
+// 讨论创建时锁定的普通 Skill 版本（allowlist）
+model DiscussionSkill {
+  id              String   @id @default(cuid())
+  discussionId    String
+  skillRevisionId String
+  createdAt       DateTime @default(now())
+
+  discussion    Discussion     @relation(fields: [discussionId], references: [id], onDelete: Cascade)
+  skillRevision SkillRevision @relation(fields: [skillRevisionId], references: [id], onDelete: Restrict)
+
+  @@unique([discussionId, skillRevisionId])
+  @@index([skillRevisionId])
+}
+
+// DSH 原始事件 ledger（去重、审计、重放）；不对用户直接展示
+model AgentEvent {
+  id            String   @id @default(cuid())
+  discussionId  String
+  participantId String? // Moderator 事件为空
+  sessionId     String
+  seq           Int
+  eventType     String
+  payload       Json?   // 清理凭据/header/绝对路径后保存
+  createdAt     DateTime @default(now())
+
+  discussion Discussion @relation(fields: [discussionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, seq])
+  @@index([discussionId, createdAt])
+  @@index([sessionId])
+}
+
+// 一次讨论回合（Persona 或 Moderator），携带可重试输入快照
+model DiscussionTurn {
+  id              String    @id @default(cuid())
+  discussionId    String
+  participantId   String? // Persona turn 有值，Moderator turn 为空
+  sessionId       String
+  kind            String    // persona | moderator
+  round           Int
+  attempt         Int       @default(1)
+  inputSnapshot   Json      // 完整 prompt packet、stateVersion、引用消息 ID
+  status          String    @default("running") // running | completed | failed
+  outputMessageId String?
+  errorCode       String?
+  errorMessage    String?
+  createdAt       DateTime  @default(now())
+  completedAt     DateTime?
+
+  discussion Discussion @relation(fields: [discussionId], references: [id], onDelete: Cascade)
+
+  @@index([discussionId, round])
+  @@index([sessionId])
 }
