@@ -104,6 +104,34 @@ describe("runTurnViaProcess (P0 fail-closed)", () => {
     await expect(p).rejects.toBeInstanceOf(DshProtocolError);
   });
 
+  it("rejects a success payload when the runner exits nonzero", async () => {
+    const child = fakeChild();
+    const p = runTurnViaProcess({
+      sessionId: "s1",
+      prompt: "hi",
+      provider: "p",
+      model: "m",
+      cwd: "G:/bt",
+      dshHome: "G:/bt/data/dsh-home",
+    });
+    emitChild(child, JSON.stringify({ ok: true, sessionId: "s1", finalResponse: "x" }), 1);
+    await expect(p).rejects.toBeInstanceOf(DshProtocolError);
+  });
+
+  it("maps a structured protocol failure to a fatal protocol error", async () => {
+    const child = fakeChild();
+    const p = runTurnViaProcess({
+      sessionId: "s1",
+      prompt: "hi",
+      provider: "p",
+      model: "m",
+      cwd: "G:/bt",
+      dshHome: "G:/bt/data/dsh-home",
+    });
+    emitChild(child, JSON.stringify({ ok: false, code: "DSH_PROTOCOL_FAILED", stage: "run", error: "wire closed" }), 1);
+    await expect(p).rejects.toBeInstanceOf(DshProtocolError);
+  });
+
   it("rejects an empty response field", async () => {
     const child = fakeChild();
     const p = runTurnViaProcess({

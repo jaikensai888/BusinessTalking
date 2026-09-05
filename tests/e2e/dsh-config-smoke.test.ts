@@ -117,6 +117,8 @@ describe("dsh sdk profile config smoke", () => {
     const active = activeNames(entries);
 
     for (const name of KNOWN_FORBIDDEN_TOOLS) {
+      expect(entries.has(name), `P0-forbidden tool must be explicitly patched: ${name}`).toBe(true);
+      expect(entries.get(name), `P0-forbidden tool patch must disable it: ${name}`).toBe(true);
       expect(active, `P0-forbidden tool must be disabled: ${name}`).not.toContain(name);
     }
 

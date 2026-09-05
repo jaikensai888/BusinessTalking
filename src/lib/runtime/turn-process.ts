@@ -11,11 +11,14 @@ import path from "node:path";
 import fs from "node:fs";
 import {
   DshProtocolError,
+  DshNotInstalledError,
   DshStartFailedError,
   DshManifestError,
   DshRouteUnsupportedError,
   DshCredentialInvalidError,
   DshSkillNotAllowedError,
+  DshSessionBusyError,
+  DshRuntimeProfileConflictError,
   DshTurnError,
   DshError,
 } from "@/lib/dsh/errors";
@@ -74,6 +77,10 @@ export function mapRunnerError(code: string | undefined, message: string): DshEr
     case "DSH_START_FAILED":
     case "DSH_INITIALIZE_FAILED":
       return new DshStartFailedError(safe(message));
+    case "DSH_NOT_INSTALLED":
+      return new DshNotInstalledError(safe(message));
+    case "DSH_PROTOCOL_FAILED":
+      return new DshProtocolError(safe(message));
     case "DSH_MANIFEST_INVALID":
       return new DshManifestError(safe(message));
     case "DSH_ROUTE_UNSUPPORTED":
@@ -82,10 +89,15 @@ export function mapRunnerError(code: string | undefined, message: string): DshEr
       return new DshCredentialInvalidError(safe(message));
     case "DSH_SKILL_NOT_ALLOWED":
       return new DshSkillNotAllowedError(safe(message));
+    case "DSH_SESSION_BUSY":
+      return new DshSessionBusyError(safe(message));
+    case "RUNTIME_PROFILE_CONFLICT":
+      return new DshRuntimeProfileConflictError(safe(message));
     case "DSH_TURN_FAILED":
+      return new DshTurnError(safe(message || "DSH 模型回合失败"));
     case undefined:
     default:
-      return new DshTurnError(safe(message || "DSH 模型回合失败"));
+      return new DshProtocolError(safe(message || "DSH runner 返回未知错误码"));
   }
 }
 
@@ -122,8 +134,14 @@ export function runTurnViaProcess(req: TurnRequest): Promise<TurnResult> {
         reject(new DshProtocolError(`DSH runner 输出异常(exit ${code})：${(stderr || stdout).slice(0, 300)}`));
         return;
       }
-      if (!parsed.ok) {
+      if (parsed.ok !== true) {
         reject(mapRunnerError(parsed.code, parsed.error ?? "未知错误"));
+        return;
+      }
+      // A success payload is only valid when the child exited normally. A
+      // process can emit JSON and still fail during teardown or be signaled.
+      if (code !== 0) {
+        reject(new DshProtocolError(`DSH runner 非零退出(exit ${code})：${(stderr || stdout).slice(0, 300)}`));
         return;
       }
       // 返回其他 session 或非字符串 response 均按失败处理

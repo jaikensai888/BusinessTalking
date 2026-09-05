@@ -22,6 +22,7 @@ interface MountedAgent {
     list: () => Promise<unknown[]>;
     get: (candidate: unknown) => Promise<{ content: string }>;
   }) | undefined;
+  injectedDependencies: string[] | undefined;
   registeredTools: Map<string, unknown>;
   restrictedAllow: string[] | undefined;
   guard: ((execution: { name: string; agent?: { id: string } }) => string | undefined) | undefined;
@@ -32,6 +33,7 @@ async function captureMount(sessionId: string) {
   let created: ((payload: { agent: unknown }) => void) | undefined;
   const mounted: MountedAgent = {
     providerFactory: undefined,
+    injectedDependencies: undefined,
     registeredTools: new Map(),
     restrictedAllow: undefined,
     guard: undefined,
@@ -42,7 +44,7 @@ async function captureMount(sessionId: string) {
     apply: (ctx: unknown) => void;
   };
 
-  const fakeAgentContext = {
+  const fakeAgentScope = {
     skills: {
       registerProvider: (factory: typeof mounted.providerFactory) => {
         mounted.providerFactory = factory;
@@ -55,6 +57,10 @@ async function captureMount(sessionId: string) {
         return () => undefined;
       },
       restrict: (filter: { allow: string[] }) => {
+        const scopedNames = filter.allow.filter((name) => name !== "skill");
+        if (scopedNames.length > 0) {
+          throw new Error(`tools.restrict() names scoped tools: ${scopedNames.join(", ")}`);
+        }
         mounted.restrictedAllow = filter.allow;
         return () => undefined;
       },
@@ -69,6 +75,14 @@ async function captureMount(sessionId: string) {
         return () => undefined;
       },
       getSectionOrder: (name: string) => (name === "DEPLOYMENT_PERSONA" ? 0 : 500),
+    },
+  };
+
+  const fakeAgentContext = {
+    inject: (dependencies: string[], callback: (scope: typeof fakeAgentScope) => void) => {
+      mounted.injectedDependencies = dependencies;
+      callback(fakeAgentScope);
+      return { dispose: async () => undefined };
     },
   };
 
@@ -99,6 +113,7 @@ function writeFixtureManifest(opts: {
   const manifestPath = path.join(root, "manifests", `${sessionId}.json`);
   const snapshotRoot = opts.snapshotRoot ?? path.join(root, "snapshots", sessionId);
   const personaSkillContent = opts.personaSkillContent ?? "---\nname: test-persona\n---\n\n# Full persona skill\nUse the test identity.";
+  const referenceBody = "reference A";
   const persona = opts.persona === null ? undefined : {
     id: "persona-test",
     name: "测试人格",
@@ -107,16 +122,16 @@ function writeFixtureManifest(opts: {
     skillVersion: "0.0.0+test",
     skillHash: H(personaSkillContent),
     snapshotRoot: path.relative(projectRoot, snapshotRoot),
-    referenceIndex: [{ rel: "references/a.md", name: "a.md", size: 10, hash: H("ref-a") }],
+    referenceIndex: [{ rel: "references/a.md", name: "a.md", size: Buffer.byteLength(referenceBody), hash: H(referenceBody) }],
   };
   fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
   fs.mkdirSync(path.join(snapshotRoot, "references"), { recursive: true });
   fs.writeFileSync(path.join(snapshotRoot, "SKILL.md"), personaSkillContent, "utf8");
-  fs.writeFileSync(path.join(snapshotRoot, "references", "a.md"), "reference A", "utf8");
-  const allowedSkills = opts.allowedSkill
+  fs.writeFileSync(path.join(snapshotRoot, "references", "a.md"), referenceBody, "utf8");
+  const allowedSkills = persona
     ? [
-        { name: "persona-profile", version: "0.0.0+test", contentHash: H(personaSkillContent), packageRoot: path.relative(projectRoot, snapshotRoot), description: "Persona: 测试人格", resourceIndex: [{ rel: "references/a.md", name: "a.md", size: 10, hash: H("ref-a") }] },
-        opts.allowedSkill,
+        { name: "persona-profile", version: "0.0.0+test", contentHash: H(personaSkillContent), packageRoot: path.relative(projectRoot, snapshotRoot), description: "Persona: 测试人格", resourceIndex: [{ rel: "references/a.md", name: "a.md", size: Buffer.byteLength(referenceBody), hash: H(referenceBody) }] },
+        ...(opts.allowedSkill ? [{ ...opts.allowedSkill, resourceIndex: opts.allowedSkill.resourceIndex ?? [] }] : []),
       ]
     : [];
   fs.writeFileSync(
@@ -156,6 +171,19 @@ describe("business-talking DSH plugin (P0 scoped mount)", () => {
     }
   });
 
+  it("resolves scoped services through Cordis inject before mounting the agent", async () => {
+    const sessionId = `bt-plugin-inject-${crypto.randomUUID()}`;
+    const { manifestPath, snapshotRoot } = writeFixtureManifest({ sessionId });
+    process.env.BT_DSH_SESSION_ID = sessionId;
+    try {
+      const { mounted } = await captureMount(sessionId) as { mounted: MountedAgent };
+      expect(mounted.injectedDependencies).toEqual(["skills", "systemPrompt", "tools"]);
+    } finally {
+      fs.rmSync(manifestPath, { force: true });
+      fs.rmSync(snapshotRoot, { recursive: true, force: true });
+    }
+  });
+
   it("fails closed when BT_DSH_SESSION_ID is missing (no test manifest fallback)", async () => {
     delete process.env.BT_DSH_SESSION_ID;
     const sessionId = `bt-plugin-missing-${crypto.randomUUID()}`;
@@ -169,7 +197,7 @@ describe("business-talking DSH plugin (P0 scoped mount)", () => {
     try {
       const { mounted } = await captureMount(sessionId) as { mounted: MountedAgent };
       expect([...mounted.registeredTools.keys()].sort()).toEqual(["read_skill_reference"]);
-      expect(mounted.restrictedAllow).toEqual(["skill", "read_skill_reference"]);
+      expect(mounted.restrictedAllow).toEqual(["skill"]);
       expect(mounted.guard).toBeTypeOf("function");
     } finally {
       fs.rmSync(manifestPath, { force: true });
@@ -177,7 +205,7 @@ describe("business-talking DSH plugin (P0 scoped mount)", () => {
     }
   });
 
-  it("registers web_search only when manifest allows it", async () => {
+  it("fails closed when web_search is enabled without a P0 internal endpoint", async () => {
     const sessionId = `bt-plugin-web-${crypto.randomUUID()}`;
     const { manifestPath, snapshotRoot } = writeFixtureManifest({
       sessionId,
@@ -185,9 +213,22 @@ describe("business-talking DSH plugin (P0 scoped mount)", () => {
     });
     process.env.BT_DSH_SESSION_ID = sessionId;
     try {
-      const { mounted } = await captureMount(sessionId) as { mounted: MountedAgent };
-      expect([...mounted.registeredTools.keys()].sort()).toEqual(["read_skill_reference", "web_search"]);
-      expect(mounted.restrictedAllow).toEqual(["skill", "read_skill_reference", "web_search"]);
+      await expect(captureMount(sessionId)).rejects.toThrow(/web_search/);
+    } finally {
+      fs.rmSync(manifestPath, { force: true });
+      fs.rmSync(snapshotRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a manifest that bypasses the TS writer with an invalid persona hash", async () => {
+    const sessionId = `bt-plugin-runtime-schema-${crypto.randomUUID()}`;
+    const { manifestPath, snapshotRoot } = writeFixtureManifest({ sessionId });
+    process.env.BT_DSH_SESSION_ID = sessionId;
+    try {
+      const raw = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as { persona?: { skillHash?: string } };
+      if (raw.persona) raw.persona.skillHash = "abc123";
+      fs.writeFileSync(manifestPath, JSON.stringify(raw), "utf8");
+      await expect(captureMount(sessionId)).rejects.toThrow(/Hash|hash/);
     } finally {
       fs.rmSync(manifestPath, { force: true });
       fs.rmSync(snapshotRoot, { recursive: true, force: true });
@@ -223,6 +264,9 @@ describe("business-talking DSH plugin (P0 scoped mount)", () => {
       const listB = await B.provider.list();
       expect(listA.filter((s) => (s as { name?: string }).name === "shared-skill")).toHaveLength(1);
       expect(listB.filter((s) => (s as { name?: string }).name === "shared-skill")).toHaveLength(1);
+      expect((listA.find((s) => (s as { name?: string }).name === "shared-skill") as { description?: string }).description).toBe(
+        "Skill shared-skill"
+      );
 
       const candA = listA.find((s) => (s as { name?: string }).name === "shared-skill");
       const candB = listB.find((s) => (s as { name?: string }).name === "shared-skill");
@@ -240,6 +284,38 @@ describe("business-talking DSH plugin (P0 scoped mount)", () => {
       fs.rmSync(skillRootB, { recursive: true, force: true });
       fs.rmSync(mA.snapshotRoot, { recursive: true, force: true });
       fs.rmSync(mB.snapshotRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rechecks the candidate name/version/hash before loading an ordinary Skill", async () => {
+    const sessionId = `bt-plugin-candidate-${crypto.randomUUID()}`;
+    const skillRoot = path.join(projectRoot, "data", "skill-library", `candidate-${crypto.randomUUID()}`);
+    const skillContent = "---\nname: candidate-skill\n---\n\n# Candidate skill";
+    fs.mkdirSync(skillRoot, { recursive: true });
+    fs.writeFileSync(path.join(skillRoot, "SKILL.md"), skillContent, "utf8");
+    const { manifestPath, snapshotRoot } = writeFixtureManifest({
+      sessionId,
+      allowedSkill: {
+        name: "candidate-skill",
+        contentHash: H(skillContent),
+        version: "1.2.3",
+        packageRoot: path.relative(projectRoot, skillRoot),
+      },
+    });
+    process.env.BT_DSH_SESSION_ID = sessionId;
+    try {
+      const { provider } = await captureMount(sessionId) as { provider: { list: () => Promise<unknown[]>; get: (c: unknown) => Promise<{ content: string }> } };
+      const candidate = (await provider.list()).find((s) => (s as { name?: string }).name === "candidate-skill");
+      if (!candidate) throw new Error("candidate-skill 未注册");
+      const record = candidate as { name: string; locator: { kind: string; name: string; version: string; contentHash: string } };
+      await expect(provider.get({ ...record, locator: { ...record.locator, version: "9.9.9" } })).rejects.toThrow(
+        "不在 allowlist"
+      );
+      await expect(provider.get({ ...record, name: "other-skill" })).rejects.toThrow("不匹配");
+    } finally {
+      fs.rmSync(manifestPath, { force: true });
+      fs.rmSync(snapshotRoot, { recursive: true, force: true });
+      fs.rmSync(skillRoot, { recursive: true, force: true });
     }
   });
 

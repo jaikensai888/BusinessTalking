@@ -41,6 +41,29 @@ function dshError(code, message) {
   return e;
 }
 
+function skillDescription(name, description) {
+  const value = typeof description === "string" ? description.trim() : "";
+  return value || `Skill ${name}`;
+}
+
+function opaqueResourceBase(name) {
+  return { kind: "opaque", description: `${name} resources (business-talking)` };
+}
+
+function candidateRecord(candidate) {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+    throw dshError("DSH_SKILL_NOT_ALLOWED", "Skill candidate 非法");
+  }
+  const locator = candidate.locator;
+  if (!locator || typeof locator !== "object" || Array.isArray(locator)) {
+    throw dshError("DSH_SKILL_NOT_ALLOWED", "Skill locator 非法");
+  }
+  if (typeof candidate.name !== "string" || !candidate.name) {
+    throw dshError("DSH_SKILL_NOT_ALLOWED", "Skill candidate name 非法");
+  }
+  return { candidate, locator };
+}
+
 /** 只读 web_search：访问 BT 内部 endpoint（仅当 manifest.toolPolicy.webSearch 且内部 endpoint/token 存在时注册） */
 function buildWebSearchTool() {
   return defineTool({
@@ -124,7 +147,7 @@ function buildReadSkillRefTool() {
         throw dshError("DSH_SKILL_NOT_ALLOWED", `reference 不在索引中：${skillName}#${rel}`);
       }
       // 读取前 realpath boundary check（readVerifiedFile 内已做）
-      const body = readVerifiedFile(root, rel, target.hash, CWD());
+      const body = readVerifiedFile(root, rel, target.hash, CWD(), 512 * 1024, target.size);
       return {
         source: "skill-reference",
         skillName,
@@ -160,7 +183,7 @@ function assertAgentIdentity(exec) {
 function resolveSnapshotRoot(cwd, manifest) {
   const root = manifest.persona?.snapshotRoot;
   if (!root) throw new ManifestError("DSH_MANIFEST_INVALID", "persona 缺 snapshotRoot");
-  return resolveRoot(cwd, root);
+  return resolveRoot(cwd, root, "snapshot");
 }
 
 /** 找到 persona 的完整 SKILL.md 正文（hash 校验） */
@@ -184,14 +207,20 @@ function mountAgentScope(agent) {
   if (manifest.sessionId !== sessionId) {
     throw dshError("DSH_MANIFEST_INVALID", "manifest sessionId 与 Agent 不一致");
   }
+  if (manifest.toolPolicy?.webSearch === true) {
+    throw dshError("DSH_MANIFEST_INVALID", "P0 未开启 web_search：内部搜索 endpoint 尚未提供");
+  }
 
-  const scoped = agent.ctx;
-  const after = new Set(P0_ALLOWED_TOOLS);
-  if (manifest.toolPolicy?.webSearch) after.add(P0_WEB_SEARCH);
+  // Cordis service properties are only available from an injected context.
+  // `agent.ctx` itself is a context proxy, not a service bag; reading
+  // `agent.ctx.skills` directly fails with "without inject" in the real DSH.
+  return agent.ctx.inject(["skills", "systemPrompt", "tools"], (scoped) => {
+    const after = new Set(P0_ALLOWED_TOOLS);
+    if (manifest.toolPolicy?.webSearch) after.add(P0_WEB_SEARCH);
 
-  const providerName = "business-talking";
-  // SkillProvider：list/get 只返回当前 manifest 的 Persona profile + allowedSkills（fail-closed）
-  scoped.skills.registerProvider((_control) => ({
+    const providerName = "business-talking";
+    // SkillProvider：list/get 只返回当前 manifest 的 Persona profile + allowedSkills（fail-closed）
+    scoped.skills.registerProvider((_control) => ({
     name: providerName,
     async list() {
       const m = loadManifest(CWD(), sessionId);
@@ -203,19 +232,25 @@ function mountAgentScope(agent) {
           invocation: { modelInvocable: true, userInvocable: false },
           source: "custom",
           provider: providerName,
-          resourceBase: { kind: "opaque", description: "persona-profile (business-talking)" },
+          resourceBase: opaqueResourceBase(m.persona.skillName),
           rank: 600,
-          locator: { kind: "persona", hash: m.persona.skillHash },
+          locator: {
+            kind: "persona",
+            name: m.persona.skillName,
+            version: m.persona.skillVersion,
+            hash: m.persona.skillHash,
+          },
         });
       }
       for (const s of m.allowedSkills ?? []) {
+        if (m.persona?.skillName === s.name) continue;
         out.push({
           name: s.name,
-          description: s.description ?? "",
+          description: skillDescription(s.name, s.description),
           invocation: { modelInvocable: true, userInvocable: false },
           source: "custom",
           provider: providerName,
-          resourceBase: { kind: "opaque", description: s.name },
+          resourceBase: opaqueResourceBase(s.name),
           rank: 600,
           locator: { kind: "skill", name: s.name, version: s.version, contentHash: s.contentHash },
         });
@@ -224,23 +259,39 @@ function mountAgentScope(agent) {
     },
     async get(candidate) {
       const m = loadManifest(CWD(), sessionId);
-      if (candidate.locator.kind === "persona") {
-        if (m.persona?.skillHash !== candidate.locator.hash || m.persona?.skillName !== candidate.name) {
+      const { candidate: candidateValue, locator } = candidateRecord(candidate);
+      if (locator.kind === "persona") {
+        if (
+          !m.persona ||
+          m.persona.skillHash !== locator.hash ||
+          m.persona.skillName !== locator.name ||
+          m.persona.skillName !== candidateValue.name ||
+          m.persona.skillVersion !== locator.version
+        ) {
           throw dshError("DSH_SKILL_NOT_ALLOWED", "Persona hash/name 不匹配");
         }
         const skillContent = readPersonaSkill(CWD(), m);
         return {
-          name: candidate.name,
-          description: candidate.description ?? "",
-          invocation: candidate.invocation,
-          source: candidate.source,
+          name: m.persona.skillName,
+          description: `Persona: ${m.persona.name}`,
+          invocation: { modelInvocable: true, userInvocable: false },
+          source: "custom",
           provider: providerName,
-          resourceBase: candidate.resourceBase,
+          resourceBase: opaqueResourceBase(m.persona.skillName),
           content: `${skillContent}\n\n<persona ${m.persona.name}>\n${m.persona.systemPrompt}`,
         };
       }
+      if (
+        locator.kind !== "skill" ||
+        typeof locator.name !== "string" ||
+        typeof locator.version !== "string" ||
+        typeof locator.contentHash !== "string" ||
+        locator.name !== candidateValue.name
+      ) {
+        throw dshError("DSH_SKILL_NOT_ALLOWED", "Skill locator/name 不匹配");
+      }
       const skill = m.allowedSkills.find(
-        (s) => s.name === candidate.locator.name && s.contentHash === candidate.locator.contentHash
+        (s) => s.name === candidateValue.name && s.name === locator.name && s.version === locator.version && s.contentHash === locator.contentHash
       );
       if (!skill) throw dshError("DSH_SKILL_NOT_ALLOWED", "Skill 不在 allowlist 或 hash 不一致");
       // 完整 SKILL.md 由真实 packageRoot 读取并校验 contentHash（不返回占位文本）
@@ -248,18 +299,18 @@ function mountAgentScope(agent) {
       const content = readVerifiedFile(skillRoot, "SKILL.md", skill.contentHash, CWD(), 256 * 1024);
       return {
         name: skill.name,
-        description: skill.description ?? "",
-        invocation: candidate.invocation,
-        source: candidate.source,
+        description: skillDescription(skill.name, skill.description),
+        invocation: { modelInvocable: true, userInvocable: false },
+        source: "custom",
         provider: providerName,
-        resourceBase: candidate.resourceBase,
+        resourceBase: opaqueResourceBase(skill.name),
         content,
       };
     },
-  }));
+    }));
 
-  // systemPrompt section（只对该 agent 生效，不覆盖全局）
-  scoped.systemPrompt.section({
+    // systemPrompt section（只对该 agent 生效，不覆盖全局）
+    scoped.systemPrompt.section({
     name: PERSONA_SECTION,
     order: scoped.systemPrompt.getSectionOrder("DEPLOYMENT_PERSONA"),
     text: () => {
@@ -268,27 +319,30 @@ function mountAgentScope(agent) {
       const skillBody = readPersonaSkill(CWD(), m);
       return `${skillBody}\n\n<persona ${m.persona.name}>\n${m.persona.systemPrompt}`;
     },
-  });
+    });
 
-  // scoped 只读工具（read_skill_reference 必注册；web_search 仅 manifest 允许时）
-  scoped.tools.register(buildReadSkillRefTool());
-  if (manifest.toolPolicy?.webSearch) scoped.tools.register(buildWebSearchTool());
+    // scoped 只读工具（read_skill_reference 必注册；web_search 仅 manifest 允许时）
+    scoped.tools.register(buildReadSkillRefTool());
+    if (manifest.toolPolicy?.webSearch) scoped.tools.register(buildWebSearchTool());
 
-  // tools.restrict：模型可见 schema 收敛到 P0 只读 allowlist（scoped，不含全局残留）
-  scoped.tools.restrict({ allow: [...after] });
+    // `restrict()` filters only inherited/global tools. Scoped registrations
+    // remain visible by design, so do not pass read_skill_reference or
+    // web_search here; the guard below covers the complete visible roster.
+    scoped.tools.restrict({ allow: ["skill"] });
 
-  // tools.guard：执行前二次校验（即使某个默认 entry 因依赖仍被加载也不能执行）
-  scoped.tools.guard((execution) => {
-    const name = execution.name;
-    if (!after.has(name)) {
-      return `工具 ${name} 不在 P0 只读 allowlist，拒绝执行`;
-    }
-    try {
-      assertAgentIdentity(execution);
-    } catch (e) {
-      return String(e.message ?? e);
-    }
-    return undefined;
+    // tools.guard：执行前二次校验（即使某个默认 entry 因依赖仍被加载也不能执行）
+    scoped.tools.guard((execution) => {
+      const name = execution.name;
+      if (!after.has(name)) {
+        return `工具 ${name} 不在 P0 只读 allowlist，拒绝执行`;
+      }
+      try {
+        assertAgentIdentity(execution);
+      } catch (e) {
+        return String(e.message ?? e);
+      }
+      return undefined;
+    });
   });
 }
 

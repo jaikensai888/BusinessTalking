@@ -26,9 +26,9 @@ describe("dsh turn-process error mapping", () => {
     expect(mapRunnerError("DSH_SKILL_NOT_ALLOWED", "denied")).toBeInstanceOf(DshSkillNotAllowedError);
   });
 
-  it("defaults unknown or missing codes to DshTurnError", () => {
-    expect(mapRunnerError(undefined, "boom")).toBeInstanceOf(DshTurnError);
-    expect(mapRunnerError("SOME_OTHER_CODE", "boom")).toBeInstanceOf(DshTurnError);
+  it("defaults unknown or missing codes to fatal DshProtocolError", () => {
+    expect(mapRunnerError(undefined, "boom")).toBeInstanceOf(DshProtocolError);
+    expect(mapRunnerError("SOME_OTHER_CODE", "boom")).toBeInstanceOf(DshProtocolError);
   });
 
   it("truncates long error messages to a safe short form", () => {

@@ -23,7 +23,7 @@ function validManifest(overrides: Partial<RuntimeSessionManifest> = {}): Runtime
     id: "p1",
     name: "xx",
     systemPrompt: "sys",
-    skillName: "persona-profile",
+    skillName: "persona-profile" as const,
     skillVersion: "1.0.0",
     skillHash: H("persona-skill"),
     snapshotRoot: "/tmp/snap",
@@ -88,6 +88,7 @@ describe("dsh manifest", () => {
     expect(() => safeSessionFileName("../evil")).toThrow(DshManifestError);
     expect(() => safeSessionFileName("a/b")).toThrow(DshManifestError);
     expect(() => safeSessionFileName("")).toThrow(DshManifestError);
+    expect(() => safeSessionFileName(`bt-${"a".repeat(198)}`)).toThrow(DshManifestError);
   });
 
   it("reads a missing manifest as DshManifestError", () => {
@@ -160,6 +161,20 @@ describe("dsh manifest P0 contract", () => {
       m.allowedSkills = m.allowedSkills.map((s) =>
         s.name === "persona-profile" ? { ...s, packageRoot: "/elsewhere" } : s
       );
+    });
+    // persona skill name 必须固定为系统保留的 persona-profile
+    expectInvalid((m) => {
+      if (m.persona) (m.persona as { skillName: string }).skillName = "custom-persona";
+      m.allowedSkills = m.allowedSkills.map((s) =>
+        s.name === "persona-profile" ? { ...s, name: "custom-persona" } : s
+      );
+    });
+  });
+
+  it("requires a resource index for every allowed skill", () => {
+    expectInvalid((m) => {
+      const skill = m.allowedSkills.find((s) => s.name === "market-research");
+      if (skill) delete (skill as { resourceIndex?: unknown }).resourceIndex;
     });
   });
 

@@ -176,9 +176,14 @@ export async function runDiscussion(discussionId: string): Promise<void> {
         const steers = pendingSteers(state.userSteers ?? [], personaId);
         const prompt = buildGroupPersonaPrompt(persona.name, persona.systemPrompt, d.brief, round, state, roundOutputs, steers);
 
+        let currentTurnSessionId: string | undefined;
+        let currentParticipantId: string | undefined;
+        let currentTurnId: string | undefined;
         try {
           const turnSessionId = freshTurnSessionId(discussionId, personaId);
+          currentTurnSessionId = turnSessionId;
           const { participant } = await ensurePersonaSession(discussionId, personaId, turnSessionId);
+          currentParticipantId = participant.id;
           await prisma.discussionParticipant.update({ where: { id: participant.id }, data: { status: "running" } });
           publish(discussionId, { type: "change" });
 
@@ -195,6 +200,7 @@ export async function runDiscussion(discussionId: string): Promise<void> {
               status: "running",
             },
           });
+          currentTurnId = turn.id;
 
           const text = (await runTurnViaDsh(turnSessionId, prompt)).trim();
           if (text) {
@@ -231,18 +237,21 @@ export async function runDiscussion(discussionId: string): Promise<void> {
           }
           await prisma.discussionParticipant.update({ where: { id: participant.id }, data: { status: "completed" } });
         } catch (e) {
-          // P0：只有 DSH_TURN_FAILED 可标记该 Persona failed 并继续同轮；
-          // runtime/transport/protocol/manifest/permission/unknown 错误立即终止整场讨论
-          if (isFatalDiscussionRuntimeError(e)) {
-            throw e;
-          }
           const dshErr = e instanceof DshError ? e : undefined;
           const error = dshErr?.message ?? (e instanceof Error ? e.message : String(e));
-          const participant = await prisma.discussionParticipant.findFirst({ where: { discussionId, personaId } });
+          const errorCode = dshErr?.code ?? "DSH_PROTOCOL_FAILED";
+          const participant = currentParticipantId
+            ? { id: currentParticipantId }
+            : await prisma.discussionParticipant.findFirst({ where: { discussionId, personaId } });
           if (participant) {
             await prisma.discussionTurn.updateMany({
-              where: { participantId: participant.id, status: "running" },
-              data: { status: "failed", errorCode: "DSH_TURN_FAILED", errorMessage: error, completedAt: new Date() },
+              where: {
+                ...(currentTurnId ? { id: currentTurnId } : { discussionId }),
+                participantId: participant.id,
+                ...(currentTurnSessionId ? { sessionId: currentTurnSessionId } : {}),
+                status: "running",
+              },
+              data: { status: "failed", errorCode, errorMessage: error, completedAt: new Date() },
             });
             await prisma.discussionParticipant.update({
               where: { id: participant.id },
@@ -250,6 +259,8 @@ export async function runDiscussion(discussionId: string): Promise<void> {
             });
           }
           publish(discussionId, { type: "change" });
+          // P0：只有 DSH_TURN_FAILED 可继续同轮；其他错误在状态落盘后终止整场讨论。
+          if (isFatalDiscussionRuntimeError(e)) throw e;
         }
       }
 
@@ -265,7 +276,19 @@ export async function runDiscussion(discussionId: string): Promise<void> {
       }
       // P0：不自动重试、不构造 fallback proposal；失败即终止讨论
       const sessionId = freshTurnSessionId(discussionId, "moderator");
-      await writeModeratorManifestForSession(sessionId, discussionId);
+      try {
+        await writeModeratorManifestForSession(sessionId, discussionId);
+      } catch (e) {
+        // Manifest/configuration failure happens before runModeratorTurn's
+        // error boundary, but it is still a Moderator failure from the
+        // discussion's perspective.
+        await prisma.discussion.update({
+          where: { id: discussionId },
+          data: { status: "failed", moderatorStatus: "failed" },
+        });
+        publish(discussionId, { type: "change" });
+        throw e;
+      }
       let proposal: StateProposal;
       try {
         proposal = await runModeratorTurn(discussionId, round, state, acceptedMessageIds, sessionId);

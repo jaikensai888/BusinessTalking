@@ -18,6 +18,12 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/v1/discussions
   if (!participant) return err(40401, "参与者不存在", 404);
   if (participant.status !== "failed") return err(40901, "仅失败状态的参与者可重试", 409);
 
+  const discussion = await prisma.discussion.findUnique({
+    where: { id },
+    select: { personaIds: true },
+  });
+  const isOneOnOne = Array.isArray(discussion?.personaIds) && discussion.personaIds.length === 1;
+
   const snapshotTurn = await prisma.discussionTurn.findFirst({
     where: { participantId, status: "failed" },
     orderBy: { createdAt: "desc" },
@@ -76,6 +82,11 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/v1/discussions
       return err(50201, "DSH 返回空回复", 502);
     }
     await prisma.discussionParticipant.update({ where: { id: participant.id }, data: { status: "completed", lastError: null } });
+    if (isOneOnOne) {
+      // A successful retry reopens only a one-on-one discussion. Group
+      // discussions remain under the orchestrator's failure/round state.
+      await prisma.discussion.update({ where: { id }, data: { status: "ready" } });
+    }
     return ok({ retried: true, attempt: newAttempt });
   } catch (e) {
     const dshErr = e instanceof DshError ? e : undefined;

@@ -30,10 +30,12 @@ const patches = (e("BT_DSH_PATCHES", "") || "").split(",").map((s) => s.trim()).
 
 // fail-closed：缺任一必填配置立即结构化失败，不得使用隐式默认值
 if (!sessionId) fail("DSH_MANIFEST_INVALID", "env", "缺少 BT_DSH_SESSION_ID");
+if (!prompt) fail("DSH_START_FAILED", "env", "缺少 BT_DSH_PROMPT");
 if (!provider) fail("DSH_ROUTE_UNSUPPORTED", "env", "缺少 BT_DSH_PROVIDER");
 if (!model) fail("DSH_ROUTE_UNSUPPORTED", "env", "缺少 BT_DSH_MODEL");
 if (!cwd) fail("DSH_START_FAILED", "env", "缺少 BT_DSH_CWD");
 if (!dshHome) fail("DSH_START_FAILED", "env", "缺少 BT_DSH_HOME");
+if (!patches.length) fail("DSH_START_FAILED", "env", "缺少 BT_DSH_PATCHES");
 
 const env = {};
 for (const k of ["PATH","Path","HOME","USERPROFILE","TEMP","TMP","TMPDIR","SystemRoot","SYSTEMROOT","COMSPEC","PATHEXT","WINDIR","LANG","LC_ALL","NODE_PATH","PWD","INIT_CWD","APPDATA","LOCALAPPDATA"]) {
@@ -47,14 +49,45 @@ if (apiKey) { env.DEEPSEEK_API_KEY = apiKey; env.BT_DSH_LLM_API_KEY = apiKey; en
 
 function emit(obj) { process.stdout.write(JSON.stringify(obj)); }
 
+const STABLE_CODES = new Set([
+  "DSH_NOT_INSTALLED",
+  "DSH_START_FAILED",
+  "DSH_INITIALIZE_FAILED",
+  "DSH_PROTOCOL_FAILED",
+  "DSH_ROUTE_UNSUPPORTED",
+  "DSH_CREDENTIAL_INVALID",
+  "DSH_MANIFEST_INVALID",
+  "DSH_SKILL_NOT_ALLOWED",
+  "DSH_SESSION_BUSY",
+  "DSH_TURN_FAILED",
+  "RUNTIME_PROFILE_CONFLICT",
+]);
+
+function runnerErrorCode(error, stage) {
+  if (typeof error?.code === "string" && STABLE_CODES.has(error.code)) return error.code;
+  switch (error?.name) {
+    case "TransportClosedError":
+    case "SdkProtocolError":
+    case "JsonRpcResponseError":
+      return "DSH_PROTOCOL_FAILED";
+    case "RequestTimeoutError":
+      return stage === "run" ? "DSH_TURN_FAILED" : "DSH_INITIALIZE_FAILED";
+    default:
+      return stage === "start" ? "DSH_START_FAILED" : "DSH_PROTOCOL_FAILED";
+  }
+}
+
 let harness;
+let stage = "start";
 try {
   harness = new DeepSeekHarness({
     profile: "sdk", provider, model, cwd, processCwd: cwd, dshBin, dshHome, env,
     ...(patches.length ? { patches } : {}), initializeTimeoutMs: 20_000,
   });
   await harness.start();
+  stage = "run";
   const result = await harness.run(prompt, { sessionId });
+  stage = "close";
   await harness.close();
   emit({
     ok: true,
@@ -67,7 +100,7 @@ try {
   try { await harness?.close(); } catch { /* 保留原始错误 */ }
   const message = String((err && err.message) ?? err);
   // 保留稳定 code/stage；不输出 API key、完整 prompt 或宿主环境
-  const code = (err && err.code && typeof err.code === "string") ? err.code : "DSH_TURN_FAILED";
-  emit({ ok: false, code, stage: "run", error: message });
+  const code = runnerErrorCode(err, stage);
+  emit({ ok: false, code, stage, error: message });
   process.exit(1);
 }

@@ -4,8 +4,19 @@
  */
 import { prisma } from "@/lib/db";
 import { randomUUID } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import crypto from "node:crypto";
 import { ensurePersonaSnapshot, type PersonaSnapshot } from "@/lib/dsh/snapshot";
-import { deleteManifest, parseManifest, writeManifestAtomic, type RuntimeSessionManifest } from "@/lib/dsh/manifest";
+import {
+  deleteManifest,
+  isSafeReferenceRel,
+  MAX_REFERENCE_BYTES,
+  parseManifest,
+  SHA256_HEX_RE,
+  writeManifestAtomic,
+  type RuntimeSessionManifest,
+} from "@/lib/dsh/manifest";
 import { getDshTurnConfig } from "@/lib/runtime/singleton";
 import { runTurnViaProcess } from "@/lib/runtime/turn-process";
 import { publish } from "./broadcast";
@@ -45,6 +56,116 @@ async function loadDiscussionSkills(discussionId: string) {
   return rows.map((r) => r.skillRevision);
 }
 
+const MAX_SKILL_BYTES = 256 * 1024;
+
+function dshManifestFailure(message: string): never {
+  throw new DshManifestError(message);
+}
+
+function realpathOrFail(target: string, label: string): string {
+  try {
+    return fs.realpathSync.native(/* turbopackIgnore: true */ target);
+  } catch {
+    return dshManifestFailure(`${label} 不存在或不可解析：${target}`);
+  }
+}
+
+function isWithin(parent: string, child: string): boolean {
+  const relative = path.relative(parent, child);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function resolveInstalledSkillRoot(packageRoot: string | null, skillName: string): string {
+  if (typeof packageRoot !== "string" || !packageRoot.trim()) {
+    return dshManifestFailure(`Skill ${skillName} revision 缺少 packageRoot（未安装，不可执行）`);
+  }
+  const libraryRoot = realpathOrFail(path.join(process.cwd(), "data", "skill-library"), "Skill library");
+  const root = realpathOrFail(path.resolve(/* turbopackIgnore: true */ process.cwd(), packageRoot), `Skill ${skillName} packageRoot`);
+  if (!isWithin(libraryRoot, root) || !fs.statSync(/* turbopackIgnore: true */ root).isDirectory()) {
+    return dshManifestFailure(`Skill ${skillName} packageRoot 不在 data/skill-library 内`);
+  }
+  return root;
+}
+
+function readVerifiedInstalledFile(
+  root: string,
+  relativePath: string,
+  expectedHash: string,
+  maxBytes: number,
+  expectedSize?: number
+): string {
+  if (!SHA256_HEX_RE.test(expectedHash)) {
+    return dshManifestFailure(`Skill 资源 hash 非法：${relativePath}`);
+  }
+  const candidate = path.resolve(/* turbopackIgnore: true */ root, relativePath);
+  const realRoot = realpathOrFail(root, "Skill packageRoot");
+  const realFile = realpathOrFail(candidate, `Skill 文件 ${relativePath}`);
+  if (!isWithin(realRoot, realFile)) {
+    return dshManifestFailure(`Skill 文件路径越界：${relativePath}`);
+  }
+  if (!fs.statSync(/* turbopackIgnore: true */ realFile).isFile()) {
+    return dshManifestFailure(`Skill 文件不是普通文件：${relativePath}`);
+  }
+  const body = fs.readFileSync(/* turbopackIgnore: true */ realFile, "utf8");
+  const size = Buffer.byteLength(body, "utf8");
+  if (size > maxBytes) {
+    return dshManifestFailure(`Skill 文件超过大小上限：${relativePath}`);
+  }
+  if (expectedSize !== undefined && size !== expectedSize) {
+    return dshManifestFailure(`Skill 资源 size 不匹配：${relativePath}`);
+  }
+  const actualHash = crypto.createHash("sha256").update(body, "utf8").digest("hex");
+  if (actualHash !== expectedHash) {
+    return dshManifestFailure(`Skill 文件 hash 不匹配：${relativePath}`);
+  }
+  return body;
+}
+
+function verifyRevisionResources(
+  root: string,
+  skillName: string,
+  manifest: unknown
+): RuntimeSessionManifest["allowedSkills"][number]["resourceIndex"] {
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
+    return dshManifestFailure(`Skill ${skillName} 缺少可验证的 resource index`);
+  }
+  const resources = (manifest as { resources?: unknown }).resources;
+  if (!Array.isArray(resources)) {
+    return dshManifestFailure(`Skill ${skillName} 缺少可验证的 resource index`);
+  }
+  const seenRel = new Set<string>();
+  const seenHash = new Set<string>();
+  return resources.map((raw, index) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      return dshManifestFailure(`Skill ${skillName} resource index 第 ${index + 1} 项非法`);
+    }
+    const resource = raw as { rel?: unknown; name?: unknown; size?: unknown; hash?: unknown };
+    const rel = resource.rel;
+    const name = resource.name;
+    const size = resource.size;
+    const hash = resource.hash;
+    if (typeof rel !== "string" || !isSafeReferenceRel(rel) || !rel.toLowerCase().endsWith(".md")) {
+      return dshManifestFailure(`Skill ${skillName} resource 路径非法：${String(rel)}`);
+    }
+    if (typeof name !== "string" || !name) {
+      return dshManifestFailure(`Skill ${skillName} resource name 非法：${rel}`);
+    }
+    if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0 || size > MAX_REFERENCE_BYTES) {
+      return dshManifestFailure(`Skill ${skillName} resource size 非法：${rel}`);
+    }
+    if (typeof hash !== "string" || !SHA256_HEX_RE.test(hash)) {
+      return dshManifestFailure(`Skill ${skillName} resource hash 非法：${rel}`);
+    }
+    if (seenRel.has(rel) || seenHash.has(hash)) {
+      return dshManifestFailure(`Skill ${skillName} resource index 存在重复条目：${rel}`);
+    }
+    seenRel.add(rel);
+    seenHash.add(hash);
+    readVerifiedInstalledFile(root, rel, hash, MAX_REFERENCE_BYTES, size);
+    return { rel, name, size, hash };
+  });
+}
+
 /**
  * 把 SkillRevision 转换为 manifest 的 allowed entry；缺 packageRoot/body/hash 抛错，
  * 不回退到 Skill.instructions、旧 Skill 表或 workspace 文件。
@@ -57,23 +178,16 @@ function revisionToAllowedEntry(rev: {
   packageRoot: string | null;
   manifest: unknown;
 }): RuntimeSessionManifest["allowedSkills"][number] {
-  if (!rev.packageRoot) {
-    throw new DshManifestError(`Skill ${rev.name} revision 缺少 packageRoot（未安装，不可执行）`);
-  }
-  const manifest = (rev.manifest ?? {}) as { resources?: { rel: string; name: string; kind: string; size: number; hash: string }[] };
-  const resources = Array.isArray(manifest.resources) ? manifest.resources : [];
+  const packageRoot = resolveInstalledSkillRoot(rev.packageRoot, rev.name);
+  readVerifiedInstalledFile(packageRoot, "SKILL.md", rev.contentHash, MAX_SKILL_BYTES);
+  const resourceIndex = verifyRevisionResources(packageRoot, rev.name, rev.manifest);
   return {
     name: rev.name,
     version: rev.version,
     contentHash: rev.contentHash,
-    packageRoot: rev.packageRoot,
+    packageRoot,
     description: rev.description,
-    resourceIndex: resources.map((r) => ({
-      rel: r.rel,
-      name: r.name,
-      size: r.size,
-      hash: r.hash,
-    })),
+    resourceIndex,
   };
 }
 

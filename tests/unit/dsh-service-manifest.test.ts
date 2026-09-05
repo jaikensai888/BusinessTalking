@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 
 const H = (s: string) => crypto.createHash("sha256").update(s).digest("hex");
 
@@ -61,6 +63,12 @@ describe("dsh-service manifest (P0 Task 3)", () => {
   });
 
   it("includes every DiscussionSkill revision and rejects duplicates/missing packageRoot", async () => {
+    const skillRoot = path.join(process.cwd(), "data", "skill-library", `dsh-service-test-${crypto.randomUUID()}`, "1.0.0");
+    const skillBody = "---\nname: market-research\n---\n# installed skill";
+    const referenceBody = "facts";
+    fs.mkdirSync(path.join(skillRoot, "references"), { recursive: true });
+    fs.writeFileSync(path.join(skillRoot, "SKILL.md"), skillBody, "utf8");
+    fs.writeFileSync(path.join(skillRoot, "references", "facts.md"), referenceBody, "utf8");
     mockDiscussionSkillFindMany.mockResolvedValue([
       {
         id: "r1",
@@ -68,29 +76,60 @@ describe("dsh-service manifest (P0 Task 3)", () => {
           id: "r1",
           name: "market-research",
           version: "1.0.0",
-          contentHash: H("market"),
+          contentHash: H(skillBody),
           description: "d",
-          packageRoot: "data/skill-library/market-research/1.0.0",
+          packageRoot: skillRoot,
           manifest: {
-            resources: [{ rel: "references/facts.md", name: "facts.md", kind: "reference", size: 5, hash: H("facts") }],
+            resources: [{ rel: "references/facts.md", name: "facts.md", kind: "reference", size: Buffer.byteLength(referenceBody), hash: H(referenceBody) }],
           },
         },
       },
     ]);
-    const m = await buildPersonaManifest("d1", participant, persona, snapshot, "bt-turn-d1-p1-y");
-    const allowed = m.allowedSkills.map((s) => s.name);
-    expect(allowed).toContain("market-research");
-    const mr = m.allowedSkills.find((s) => s.name === "market-research");
-    expect(mr?.resourceIndex?.[0]?.rel).toBe("references/facts.md");
-    expect(mr?.resourceIndex?.[0]?.hash).toBe(H("facts"));
+    try {
+      const m = await buildPersonaManifest("d1", participant, persona, snapshot, "bt-turn-d1-p1-y");
+      const allowed = m.allowedSkills.map((s) => s.name);
+      expect(allowed).toContain("market-research");
+      const mr = m.allowedSkills.find((s) => s.name === "market-research");
+      expect(mr?.resourceIndex?.[0]?.rel).toBe("references/facts.md");
+      expect(mr?.resourceIndex?.[0]?.hash).toBe(H(referenceBody));
 
-    // 空 packageRoot → DshManifestError
+      // 空 packageRoot → DshManifestError
+      mockDiscussionSkillFindMany.mockResolvedValue([
+        { id: "r2", skillRevision: { id: "r2", name: "uninstalled", version: "1.0.0", contentHash: H("u"), description: null, packageRoot: null, manifest: null } },
+      ]);
+      await expect(buildPersonaManifest("d1", participant, persona, snapshot, "bt-turn-d1-p1-z")).rejects.toThrow(
+        DshManifestError
+      );
+    } finally {
+      fs.rmSync(path.dirname(skillRoot), { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an allowlisted revision whose installed SKILL.md hash is not verifiable", async () => {
+    const skillRoot = path.join(process.cwd(), "data", "skill-library", `dsh-service-test-${crypto.randomUUID()}`, "1.0.0");
+    fs.mkdirSync(skillRoot, { recursive: true });
+    fs.writeFileSync(path.join(skillRoot, "SKILL.md"), "actual body", "utf8");
     mockDiscussionSkillFindMany.mockResolvedValue([
-      { id: "r2", skillRevision: { id: "r2", name: "uninstalled", version: "1.0.0", contentHash: H("u"), description: null, packageRoot: null, manifest: null } },
+      {
+        id: "r-invalid",
+        skillRevision: {
+          id: "r-invalid",
+          name: "market-research",
+          version: "1.0.0",
+          contentHash: H("declared but absent"),
+          description: "d",
+          packageRoot: skillRoot,
+          manifest: { resources: [] },
+        },
+      },
     ]);
-    await expect(buildPersonaManifest("d1", participant, persona, snapshot, "bt-turn-d1-p1-z")).rejects.toThrow(
-      DshManifestError
-    );
+    try {
+      await expect(buildPersonaManifest("d1", participant, persona, snapshot, "bt-turn-d1-p1-invalid")).rejects.toThrow(
+        DshManifestError
+      );
+    } finally {
+      fs.rmSync(path.dirname(skillRoot), { recursive: true, force: true });
+    }
   });
 
   it("rejects a revision whose name collides with persona-profile", async () => {
@@ -123,6 +162,13 @@ describe("dsh-service manifest (P0 Task 3)", () => {
   });
 
   it("produces a manifest that passes the strict parseManifest contract", async () => {
+    const skillRoot = path.join(process.cwd(), "data", "skill-library", `dsh-service-test-${crypto.randomUUID()}`, "1.0.0");
+    const skillBody = "---\nname: market-research\n---\n# installed skill";
+    const referenceBody = "f";
+    fs.mkdirSync(skillRoot, { recursive: true });
+    fs.writeFileSync(path.join(skillRoot, "SKILL.md"), skillBody, "utf8");
+    fs.mkdirSync(path.join(skillRoot, "references"), { recursive: true });
+    fs.writeFileSync(path.join(skillRoot, "references", "f.md"), referenceBody, "utf8");
     mockDiscussionSkillFindMany.mockResolvedValue([
       {
         id: "r4",
@@ -130,20 +176,24 @@ describe("dsh-service manifest (P0 Task 3)", () => {
           id: "r4",
           name: "market-research",
           version: "1.0.0",
-          contentHash: H("market2"),
+          contentHash: H(skillBody),
           description: "d",
-          packageRoot: "data/skill-library/market-research/1.0.0",
-          manifest: { resources: [{ rel: "references/f.md", name: "f.md", kind: "reference", size: 3, hash: H("f") }] },
+          packageRoot: skillRoot,
+          manifest: { resources: [{ rel: "references/f.md", name: "f.md", kind: "reference", size: Buffer.byteLength(referenceBody), hash: H(referenceBody) }] },
         },
       },
     ]);
-    const m = await buildPersonaManifest("d1", participant, persona, snapshot, "bt-turn-d1-p1-u", {
-      provider: "openai",
-      model: "deepseek-chat",
-      baseUrl: "https://api.deepseek.com",
-      profileHash: H("profile"),
-    });
-    const { parseManifest } = await import("@/lib/dsh/manifest");
-    expect(() => parseManifest(m)).not.toThrow();
+    try {
+      const m = await buildPersonaManifest("d1", participant, persona, snapshot, "bt-turn-d1-p1-u", {
+        provider: "openai",
+        model: "deepseek-chat",
+        baseUrl: "https://api.deepseek.com",
+        profileHash: H("profile"),
+      });
+      const { parseManifest } = await import("@/lib/dsh/manifest");
+      expect(() => parseManifest(m)).not.toThrow();
+    } finally {
+      fs.rmSync(path.dirname(skillRoot), { recursive: true, force: true });
+    }
   });
 });

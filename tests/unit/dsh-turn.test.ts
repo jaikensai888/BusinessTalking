@@ -32,6 +32,7 @@ describe("dsh turn runner", () => {
       BT_DSH_MODEL: "deepseek-v4-flash",
       BT_DSH_CWD: projectRoot,
       BT_DSH_HOME: path.join(os.tmpdir(), "business-talking-dsh-home"),
+      BT_DSH_PATCHES: path.join(projectRoot, "runtime", "dsh", "cordis.patch.yml"),
     });
     expect(exitCode).toBe(0);
     expect(payload.ok).toBe(true);
@@ -65,5 +66,49 @@ describe("dsh turn runner", () => {
     expect(exitCode).toBe(1);
     expect(payload.code).toBe("DSH_MANIFEST_INVALID");
     expect(payload.error).toMatch(/缺少 BT_DSH_SESSION_ID/);
+  });
+
+  it("maps SDK protocol errors to a fatal protocol code", () => {
+    const { exitCode, payload } = runScript({
+      BT_DSH_SESSION_ID: "bt-discussion-protocol-error",
+      BT_DSH_PROMPT: "hello",
+      BT_DSH_PROVIDER: "deepseek-official",
+      BT_DSH_MODEL: "test-protocol-error",
+      BT_DSH_CWD: projectRoot,
+      BT_DSH_HOME: path.join(os.tmpdir(), "business-talking-dsh-home"),
+      BT_DSH_PATCHES: path.join(projectRoot, "runtime", "dsh", "cordis.patch.yml"),
+    });
+    expect(exitCode).toBe(1);
+    expect(payload.code).toBe("DSH_PROTOCOL_FAILED");
+  });
+
+  it("fails closed when the turn prompt is missing", () => {
+    const { exitCode, payload } = runScript({
+      BT_DSH_SESSION_ID: "bt-discussion-missing-prompt",
+      BT_DSH_PROMPT: undefined,
+      BT_DSH_PROVIDER: "deepseek-official",
+      BT_DSH_MODEL: "deepseek-v4-flash",
+      BT_DSH_CWD: projectRoot,
+      BT_DSH_HOME: path.join(os.tmpdir(), "business-talking-dsh-home"),
+      BT_DSH_PATCHES: path.join(projectRoot, "runtime", "dsh", "cordis.patch.yml"),
+    });
+    expect(exitCode).toBe(1);
+    expect(payload.code).toBe("DSH_START_FAILED");
+    expect(payload.error).toMatch(/缺少 BT_DSH_PROMPT/);
+  });
+
+  it("fails closed when the read-only patch list is missing", () => {
+    const { exitCode, payload } = runScript({
+      BT_DSH_SESSION_ID: "bt-discussion-missing-patch",
+      BT_DSH_PROMPT: "hello",
+      BT_DSH_PROVIDER: "deepseek-official",
+      BT_DSH_MODEL: "deepseek-v4-flash",
+      BT_DSH_CWD: projectRoot,
+      BT_DSH_HOME: path.join(os.tmpdir(), "business-talking-dsh-home"),
+      BT_DSH_PATCHES: undefined,
+    });
+    expect(exitCode).toBe(1);
+    expect(payload.code).toBe("DSH_START_FAILED");
+    expect(payload.error).toMatch(/缺少 BT_DSH_PATCHES/);
   });
 });

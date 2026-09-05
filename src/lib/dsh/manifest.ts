@@ -51,14 +51,14 @@ export const RuntimeProfileSchema = z.object({
   provider: z.string().min(1),
   model: z.string().min(1),
   baseUrl: z.string().nullable().optional(),
-  profileHash: z.string(),
+  profileHash: z.string().regex(SHA256_HEX_RE, { message: "profileHash 必须是 64 位小写 hex" }),
 });
 
 export const PersonaSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   systemPrompt: z.string(),
-  skillName: z.string(), // 固定 persona-profile
+  skillName: z.literal("persona-profile"),
   skillVersion: z.string().min(1),
   skillHash: z.string().regex(SHA256_HEX_RE, { message: "persona skillHash 必须是 64 位小写 hex" }),
   snapshotRoot: z.string().min(1),
@@ -71,7 +71,7 @@ export const AllowedSkillSchema = z.object({
   contentHash: z.string().regex(SHA256_HEX_RE, { message: "skill contentHash 必须是 64 位小写 hex" }),
   packageRoot: z.string().min(1), // 非空：必须指向安装过的不可变目录
   description: z.string().nullable(),
-  resourceIndex: ReferenceIndexSchema.optional(),
+  resourceIndex: ReferenceIndexSchema,
 });
 
 export const ToolPolicySchema = z.object({
@@ -138,7 +138,7 @@ export function manifestsRoot(): string {
 
 /** 校验 sessionId 只含 URL-safe 字符（防路径注入）；返回安全的文件名 */
 export function safeSessionFileName(sessionId: string): string {
-  if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) {
+  if (!/^[A-Za-z0-9_-]{1,200}$/.test(sessionId)) {
     throw new DshManifestError("Session id 含非法字符，拒绝写入 manifest");
   }
   return `${sessionId}.json`;

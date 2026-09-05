@@ -7,6 +7,9 @@ const fakeModule = `
     async start() {}
 
     async run(_prompt, { sessionId }) {
+      if (this.options.model === "test-protocol-error") {
+        throw Object.assign(new Error("wire lost"), { name: "SdkProtocolError" });
+      }
       return {
         sessionId,
         finalResponse: JSON.stringify({
