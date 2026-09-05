@@ -6,39 +6,72 @@ import { DshManifestError } from "./errors";
 /**
  * Runtime Session manifest（见 dsh-runtime-execution-plan.md §4.1）。
  * manifest 不保存 API key；DSH plugin 只读服务器已解析的 snapshot/packageRoot。
+ *
+ * P0 契约（见 dsh-p0-remediation-execution-plan.md Task 1）：
+ *  - hash 必须是 64 位小写 hex（sha256）；
+ *  - reference size 必须是 [0, 512 KiB] 的整数；
+ *  - resource index 路径只允许 `references/` 或 `examples/` 前缀，禁止绝对路径/`..`；
+ *  - persona 块与 allowedSkills 中的 persona-profile 必须完全一致；
+ *  - moderator 不得有 persona，不得有普通 Skill，不得开 web_search；
+ *  - 普通 Skill 必须有非空 packageRoot（安装过的不可变目录），名称唯一。
  */
 
-export const ReferenceIndexSchema = z.object({
-  rel: z.string(),
-  name: z.string(),
-  size: z.number(),
-  hash: z.string(),
+/** 64 位小写 hex（sha256） */
+export const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
+/** 单个 reference 文件上限（与 snapshot.ts 的 MAX_REF_BYTES 对齐） */
+export const MAX_REFERENCE_BYTES = 512 * 1024;
+
+/** resource index 相对路径：只允许 references/ 或 examples/ 前缀，禁绝对路径与 `..` */
+export function isSafeReferenceRel(rel: string): boolean {
+  if (!/^(references|examples)\//.test(rel)) return false;
+  if (rel.includes("\\")) return false;
+  if (rel.split("/").some((seg) => seg === ".." || seg === "." || seg === "")) return false;
+  return true;
+}
+
+export const ReferenceIndexEntrySchema = z.object({
+  rel: z.string().refine(isSafeReferenceRel, {
+    message: "reference rel 只允许 references/ 或 examples/ 下的相对路径",
+  }),
+  name: z.string().min(1),
+  size: z.number().int().min(0).max(MAX_REFERENCE_BYTES),
+  hash: z.string().regex(SHA256_HEX_RE, { message: "reference hash 必须是 64 位小写 hex" }),
 });
 
+export const ReferenceIndexSchema = z
+  .array(ReferenceIndexEntrySchema)
+  .refine((arr) => new Set(arr.map((r) => r.rel)).size === arr.length, {
+    message: "reference index 不允许重复条目",
+  })
+  .refine((arr) => new Set(arr.map((r) => r.hash)).size === arr.length, {
+    message: "reference index 不允许重复 hash",
+  });
+
 export const RuntimeProfileSchema = z.object({
-  provider: z.string(),
-  model: z.string(),
+  provider: z.string().min(1),
+  model: z.string().min(1),
   baseUrl: z.string().nullable().optional(),
   profileHash: z.string(),
 });
 
 export const PersonaSchema = z.object({
-  id: z.string(),
-  name: z.string(),
+  id: z.string().min(1),
+  name: z.string().min(1),
   systemPrompt: z.string(),
   skillName: z.string(), // 固定 persona-profile
-  skillVersion: z.string(),
-  skillHash: z.string(),
-  snapshotRoot: z.string(),
-  referenceIndex: z.array(ReferenceIndexSchema),
+  skillVersion: z.string().min(1),
+  skillHash: z.string().regex(SHA256_HEX_RE, { message: "persona skillHash 必须是 64 位小写 hex" }),
+  snapshotRoot: z.string().min(1),
+  referenceIndex: ReferenceIndexSchema,
 });
 
 export const AllowedSkillSchema = z.object({
-  name: z.string(),
-  version: z.string(),
-  contentHash: z.string(),
-  packageRoot: z.string().nullable(),
+  name: z.string().min(1),
+  version: z.string().min(1),
+  contentHash: z.string().regex(SHA256_HEX_RE, { message: "skill contentHash 必须是 64 位小写 hex" }),
+  packageRoot: z.string().min(1), // 非空：必须指向安装过的不可变目录
   description: z.string().nullable(),
+  resourceIndex: z.array(ReferenceIndexSchema).optional(),
 });
 
 export const ToolPolicySchema = z.object({
@@ -46,17 +79,50 @@ export const ToolPolicySchema = z.object({
   sideEffects: z.literal(false),
 });
 
-export const RuntimeSessionManifestSchema = z.object({
-  schemaVersion: z.literal(1),
-  sessionId: z.string(),
-  discussionId: z.string(),
-  participantId: z.string().optional(),
-  kind: z.enum(["persona", "moderator"]),
-  runtimeProfile: RuntimeProfileSchema,
-  persona: PersonaSchema.optional(),
-  allowedSkills: z.array(AllowedSkillSchema),
-  toolPolicy: ToolPolicySchema,
-});
+export const RuntimeSessionManifestSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    sessionId: z.string().min(1),
+    discussionId: z.string().min(1),
+    participantId: z.string().optional(),
+    kind: z.enum(["persona", "moderator"]),
+    runtimeProfile: RuntimeProfileSchema,
+    persona: PersonaSchema.optional(),
+    allowedSkills: z.array(AllowedSkillSchema),
+    toolPolicy: ToolPolicySchema,
+  })
+  .superRefine((m, ctx) => {
+    const add = (msg: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, message: msg });
+
+    // allowedSkills 名称唯一，且普通 Skill 不得覆盖 persona-profile
+    const names = m.allowedSkills.map((s) => s.name);
+    if (new Set(names).size !== names.length) {
+      add("allowedSkills 名称必须唯一");
+    }
+
+    if (m.kind === "persona") {
+      if (!m.participantId) add("persona manifest 必须有 participantId");
+      if (!m.persona) {
+        add("persona manifest 必须有 persona 块");
+      } else {
+        const profile = m.allowedSkills.filter((s) => s.name === m.persona?.skillName);
+        if (profile.length !== 1) {
+          add(`allowedSkills 必须包含唯一的 ${m.persona.skillName}`);
+        } else {
+          const p = profile[0];
+          if (p.version !== m.persona.skillVersion) add("persona-profile version 与 persona 不一致");
+          if (p.contentHash !== m.persona.skillHash) add("persona-profile contentHash 与 persona 不一致");
+          if (p.packageRoot !== m.persona.snapshotRoot) add("persona-profile packageRoot 与 persona 不一致");
+        }
+        // 不允许普通 Skill 覆盖 persona-profile（唯一性由上面覆盖）
+      }
+    } else {
+      // moderator
+      if (m.persona) add("moderator manifest 不得有 persona");
+      if (m.allowedSkills.length !== 0) add("moderator manifest 的 allowedSkills 必须为空");
+      if (m.toolPolicy.webSearch) add("moderator manifest 不得开启 web_search");
+    }
+  });
 
 export type ReferenceIndex = z.infer<typeof ReferenceIndexSchema>;
 export type RuntimeProfile = z.infer<typeof RuntimeProfileSchema>;

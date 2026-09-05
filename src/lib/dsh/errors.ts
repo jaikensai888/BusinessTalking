@@ -133,3 +133,28 @@ export class ImmutableSkillRevisionError extends DshError {
     super("IMMUTABLE_SKILL_REVISION", message);
   }
 }
+
+/**
+ * 判断任意异常是否是 DSH 稳定错误（DshError 或其子类）。
+ * 业务代码不要通过 message 字符串判断错误类型。
+ */
+export function isDshError(e: unknown): e is DshError {
+  return e instanceof DshError;
+}
+
+/** 从任意异常提取稳定错误码；非 DshError 返回 undefined。 */
+export function dshErrorCode(e: unknown): DshErrorCode | undefined {
+  return isDshError(e) ? e.code : undefined;
+}
+
+/**
+ * 讨论运行时错误分类（P0 契约）：
+ * 只有明确的 DSH_TURN_FAILED 才是「单个 Persona 模型回合失败、同轮可继续其他 Persona」
+ * 的可继续类；runtime/协议/manifest/权限/冲突/凭据错误与未知异常一律 fail-closed，
+ * 必须终止整个讨论（或保持非成功状态），不得继续到 done。
+ * DshSessionBusyError 不得被静默吞掉：按冲突错误处理（fatal），保持讨论非成功。
+ */
+export function isFatalDiscussionRuntimeError(e: unknown): boolean {
+  if (!isDshError(e)) return true; // 未知 Error 默认 fatal
+  return e.code !== "DSH_TURN_FAILED";
+}
