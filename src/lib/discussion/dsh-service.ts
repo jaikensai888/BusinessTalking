@@ -6,7 +6,7 @@ import { prisma } from "@/lib/db";
 import { generateText } from "ai";
 import { randomUUID } from "node:crypto";
 import { ensurePersonaSnapshot, type PersonaSnapshot } from "@/lib/dsh/snapshot";
-import { deleteManifest, writeManifestAtomic, type RuntimeSessionManifest } from "@/lib/dsh/manifest";
+import { deleteManifest, parseManifest, writeManifestAtomic, type RuntimeSessionManifest } from "@/lib/dsh/manifest";
 import { getDshTurnConfig } from "@/lib/runtime/singleton";
 import { runTurnViaProcess } from "@/lib/runtime/turn-process";
 import { getSetting } from "@/lib/settings/store";
@@ -15,7 +15,7 @@ import { buildModel } from "@/lib/llm/providers";
 import { normalizeProvider } from "@/lib/llm/constants";
 import { llmTimeoutMs } from "@/lib/llm/timeout";
 import { publish } from "./broadcast";
-import { DiscussionArchivedError } from "@/lib/dsh/errors";
+import { DiscussionArchivedError, DshManifestError } from "@/lib/dsh/errors";
 
 /** 从 DB 读取 Persona 源（供快照） */
 async function loadPersonaSource(personaId: string) {
@@ -41,21 +41,92 @@ export async function ensureParticipant(discussionId: string, personaId: string)
   });
 }
 
-/** 构建 Persona 的 RuntimeSessionManifest（keyed 到指定 sessionId）。 */
-export function buildPersonaManifest(
+/** 当前 Discussion 锁定的普通 Skill revisions（allowlist；创建时确定、不可变） */
+async function loadDiscussionSkills(discussionId: string) {
+  const rows = await prisma.discussionSkill.findMany({
+    where: { discussionId },
+    include: { skillRevision: true },
+    orderBy: { createdAt: "asc" },
+  });
+  return rows.map((r) => r.skillRevision);
+}
+
+/**
+ * 把 SkillRevision 转换为 manifest 的 allowed entry；缺 packageRoot/body/hash 抛错，
+ * 不回退到 Skill.instructions、旧 Skill 表或 workspace 文件。
+ */
+function revisionToAllowedEntry(rev: {
+  name: string;
+  version: string;
+  contentHash: string;
+  description: string | null;
+  packageRoot: string | null;
+  manifest: unknown;
+}): RuntimeSessionManifest["allowedSkills"][number] {
+  if (!rev.packageRoot) {
+    throw new DshManifestError(`Skill ${rev.name} revision 缺少 packageRoot（未安装，不可执行）`);
+  }
+  const manifest = (rev.manifest ?? {}) as { resources?: { rel: string; name: string; kind: string; size: number; hash: string }[] };
+  const resources = Array.isArray(manifest.resources) ? manifest.resources : [];
+  return {
+    name: rev.name,
+    version: rev.version,
+    contentHash: rev.contentHash,
+    packageRoot: rev.packageRoot,
+    description: rev.description,
+    resourceIndex: resources.map((r) => ({
+      rel: r.rel,
+      name: r.name,
+      size: r.size,
+      hash: r.hash,
+    })),
+  };
+}
+
+/** 构建 Persona 的 RuntimeSessionManifest（keyed 到指定 sessionId，异步读取当前 Discussion allowlist）。 */
+export async function buildPersonaManifest(
   discussionId: string,
   participant: { id: string; dshSessionId: string },
   persona: { id: string; name: string; systemPrompt: string },
   snapshot: PersonaSnapshot,
-  sessionId: string
-): RuntimeSessionManifest {
+  sessionId: string,
+  runtime: { provider: string; model: string; baseUrl?: string | null; profileHash: string } = {
+    provider: "openai",
+    model: "unset",
+    profileHash: "unset",
+  }
+): Promise<RuntimeSessionManifest> {
+  const revisions = await loadDiscussionSkills(discussionId);
+  const allowlist: RuntimeSessionManifest["allowedSkills"] = [
+    {
+      name: "persona-profile",
+      version: snapshot.skillVersion,
+      contentHash: snapshot.skillHash,
+      packageRoot: snapshot.snapshotRoot,
+      description: `Persona: ${persona.name}`,
+      resourceIndex: snapshot.referenceIndex,
+    },
+    ...revisions.map((rev) => revisionToAllowedEntry(rev)),
+  ];
+  // 名称唯一性（普通 Skill 不得覆盖 persona-profile；DB 有 @unique 约束但这里显式 fail-closed）
+  const names = allowlist.map((s) => s.name);
+  if (new Set(names).size !== names.length) {
+    throw new DshManifestError(
+      `Discussion ${discussionId} 的 Skill allowlist 存在重复名称：${names.join(", ")}`
+    );
+  }
   return {
     schemaVersion: 1,
     sessionId,
     discussionId,
     participantId: participant.id,
     kind: "persona",
-    runtimeProfile: { provider: "openai", model: "", profileHash: "" }, // 由 runtime 层回填
+    runtimeProfile: {
+      provider: runtime.provider,
+      model: runtime.model,
+      baseUrl: runtime.baseUrl ?? null,
+      profileHash: runtime.profileHash,
+    },
     persona: {
       id: persona.id,
       name: persona.name,
@@ -66,15 +137,7 @@ export function buildPersonaManifest(
       snapshotRoot: snapshot.snapshotRoot,
       referenceIndex: snapshot.referenceIndex,
     },
-    allowedSkills: [
-      {
-        name: "persona-profile",
-        version: snapshot.skillVersion,
-        contentHash: snapshot.skillHash,
-        packageRoot: snapshot.snapshotRoot,
-        description: `Persona: ${persona.name}`,
-      },
-    ],
+    allowedSkills: allowlist,
     toolPolicy: { webSearch: false, sideEffects: false },
   };
 }
@@ -85,8 +148,18 @@ export async function ensurePersonaSession(discussionId: string, personaId: stri
   const persona = await loadPersonaSource(personaId);
   const snapshot = ensurePersonaSnapshot(persona);
 
+  // 真实 runtime profile（provider/model/baseUrl/profileHash）；打不开凭据时提前失败
+  const config = await getDshTurnConfig();
+
   const manifestSessionId = sessionId ?? participant.dshSessionId;
-  const manifest = buildPersonaManifest(discussionId, participant, persona, snapshot, manifestSessionId);
+  const manifest = await buildPersonaManifest(discussionId, participant, persona, snapshot, manifestSessionId, {
+    provider: config.profile.provider,
+    model: config.profile.model,
+    baseUrl: config.profile.baseUrl,
+    profileHash: config.profile.profileHash,
+  });
+  // 写盘前严格校验（遵循 P0 契约：persona-profile 与 persona 一致、hash 合法、路径安全）
+  parseManifest(manifest);
   writeManifestAtomic(manifest);
 
   await prisma.discussionParticipant.update({
@@ -99,7 +172,7 @@ export async function ensurePersonaSession(discussionId: string, personaId: stri
       lastError: null,
     },
   });
-  return { participant, snapshot, persona, sessionId: manifestSessionId };
+  return { participant, snapshot, persona, sessionId: manifestSessionId, manifest };
 }
 
 /** 每个独立 DSH 回合使用新的 session，避免跨进程复用已结束 session 返回空回复。 */
@@ -268,6 +341,7 @@ export async function runOneOnOneTurn(
 /**
  * 用独立真实 Node 进程跑一回合，并把调用方传入的 sessionId 作为 manifest key。
  * 这样插件不会回退到固定的 bt-e2e manifest；每回合结束后清理临时 manifest。
+ * 清理失败仅记录错误，不得覆盖原始 DSH 错误，更不能令结果变成功。
  */
 export async function runTurnViaDsh(sessionId: string, prompt: string): Promise<string> {
   try {
@@ -285,21 +359,33 @@ export async function runTurnViaDsh(sessionId: string, prompt: string): Promise<
     });
     return res.finalResponse;
   } finally {
-    deleteManifest(sessionId);
+    try {
+      deleteManifest(sessionId);
+    } catch (e) {
+      console.error("[dsh-turn] manifest 清理失败（不覆盖原始结果）：", e instanceof Error ? e.message : e);
+    }
   }
 }
 
-/** 写一个中立 Moderator 的 manifest（keyed 到本次回合的 sessionId） */
-export function writeModeratorManifestForSession(sessionId: string, discussionId: string): void {
+/** 写一个中立 Moderator 的 manifest（keyed 到本次回合的 sessionId；严格校验后写盘）。
+ * 使用真实 runtime profile，避免 schema 校验失败或模型启动前配置缺失。 */
+export async function writeModeratorManifestForSession(sessionId: string, discussionId: string): Promise<void> {
+  const config = await getDshTurnConfig();
   const manifest: RuntimeSessionManifest = {
     schemaVersion: 1,
     sessionId,
     discussionId,
     kind: "moderator",
-    runtimeProfile: { provider: "openai", model: "", profileHash: "" },
+    runtimeProfile: {
+      provider: config.profile.provider,
+      model: config.profile.model,
+      baseUrl: config.profile.baseUrl ?? null,
+      profileHash: config.profile.profileHash,
+    },
     allowedSkills: [],
     toolPolicy: { webSearch: false, sideEffects: false },
   };
+  parseManifest(manifest);
   writeManifestAtomic(manifest);
 }
 

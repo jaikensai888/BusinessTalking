@@ -71,7 +71,7 @@ export const AllowedSkillSchema = z.object({
   contentHash: z.string().regex(SHA256_HEX_RE, { message: "skill contentHash 必须是 64 位小写 hex" }),
   packageRoot: z.string().min(1), // 非空：必须指向安装过的不可变目录
   description: z.string().nullable(),
-  resourceIndex: z.array(ReferenceIndexSchema).optional(),
+  resourceIndex: ReferenceIndexSchema.optional(),
 });
 
 export const ToolPolicySchema = z.object({
