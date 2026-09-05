@@ -135,6 +135,10 @@ export function runTurnViaProcess(req: TurnRequest): Promise<TurnResult> {
         reject(new DshTurnError("DSH runner 未返回字符串回复"));
         return;
       }
+      if (!parsed.finalResponse.trim()) {
+        reject(new DshTurnError("DSH runner 返回空回复"));
+        return;
+      }
       resolve({ sessionId: parsed.sessionId, finalResponse: parsed.finalResponse });
     });
   });

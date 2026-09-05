@@ -8,7 +8,12 @@ import { ensurePersonaSession, freshTurnSessionId, runTurnViaDsh, writeModerator
 import { persistAgentEvents, type DshNotification } from "@/lib/dsh/events";
 import { parseStateProposal, emptyState, type DiscussionState, type StateProposal } from "./state";
 import { publish } from "./broadcast";
-import { DiscussionStateConflictError, DshTurnError } from "@/lib/dsh/errors";
+import {
+  DiscussionStateConflictError,
+  DshTurnError,
+  isFatalDiscussionRuntimeError,
+  DshError,
+} from "@/lib/dsh/errors";
 
 /** 稳定参与者顺序：按 discussion.personaIds 顺序 */
 function participantOrder(discussionId: string, personaIds: string[]) {
@@ -50,14 +55,18 @@ function safeJson(v: unknown): string {
   }
 }
 
-/** 运行一次 Moderator 回合 → 返回 StateProposal */
+/**
+ * 运行一次 Moderator 回合 → 返回 StateProposal。
+ * P0：不再自动重试；DSH 错误、空回复、非法 JSON、schema 校验失败都直接抛出，
+ * 由调用方保留旧 discussionState、标记 moderatorStatus=failed 与 Discussion failed，
+ * 不写伪造 summary/evidence/decision，不进入下一轮。
+ */
 export async function runModeratorTurn(
   discussionId: string,
   round: number,
   state: DiscussionState,
   acceptedMessageIds: string[],
-  moderatorSessionId: string,
-  attempt = 1
+  moderatorSessionId: string
 ): Promise<StateProposal> {
   const prompt = [
     `你是讨论主持汇总者。请严格输出一个**合法的 JSON 对象**，不要任何 Markdown、代码块围栏或解释文字。JSON 结构（全部字段必填，缺失则填空数组）：`,
@@ -67,6 +76,9 @@ export async function runModeratorTurn(
   ].join("\n\n");
 
   const finalResponse = await runTurnViaDsh(moderatorSessionId, prompt);
+  if (!finalResponse.trim()) {
+    throw new DshTurnError("Moderator 返回空回复");
+  }
 
   const raw = extractJson(finalResponse);
   return parseStateProposal(raw); // 严格校验；失败抛错（不修复）
@@ -206,15 +218,27 @@ export async function runDiscussion(discussionId: string): Promise<void> {
               data: { status: "completed", outputMessageId: msg.id, completedAt: new Date() },
             });
           } else {
+            // P0：空回复按 failed turn 处理，不得产生 completed turn
             await prisma.discussionTurn.update({
               where: { id: turn.id },
-              data: { status: "completed", completedAt: new Date() },
+              data: { status: "failed", errorCode: "DSH_TURN_FAILED", errorMessage: "DSH 返回空回复", completedAt: new Date() },
             });
+            await prisma.discussionParticipant.update({
+              where: { id: participant.id },
+              data: { status: "failed", lastError: "DSH 返回空回复" },
+            });
+            publish(discussionId, { type: "change" });
+            continue;
           }
           await prisma.discussionParticipant.update({ where: { id: participant.id }, data: { status: "completed" } });
         } catch (e) {
-          // 单 Persona 回合失败：标记 failed，继续同轮其他人格
-          const error = e instanceof Error ? e.message : String(e);
+          // P0：只有 DSH_TURN_FAILED 可标记该 Persona failed 并继续同轮；
+          // runtime/transport/protocol/manifest/permission/unknown 错误立即终止整场讨论
+          if (isFatalDiscussionRuntimeError(e)) {
+            throw e;
+          }
+          const dshErr = e instanceof DshError ? e : undefined;
+          const error = dshErr?.message ?? (e instanceof Error ? e.message : String(e));
           const participant = await prisma.discussionParticipant.findFirst({ where: { discussionId, personaId } });
           if (participant) {
             await prisma.discussionTurn.updateMany({
@@ -230,36 +254,31 @@ export async function runDiscussion(discussionId: string): Promise<void> {
         }
       }
 
-      // Moderator 汇总（独立 Session；每回合用全新 session，避免复用已完结 session 空回复）
+      // P0：本轮没有任何真实 Persona message → 禁止 Moderator 生成共识，直接标记失败
+      if (roundOutputs.length === 0) {
+        throw new DshTurnError(`第 ${round} 轮没有任何真实 Persona 发言，放弃 Moderator 汇总`);
+      }
+
+      // Moderator 汇总（独立 Session；每回合全新 session，避免复用已完结 session 空回复）
       const logicalModeratorSessionId = d.moderatorSessionId ?? `bt-discussion-${discussionId}-moderator`;
       if (!d.moderatorSessionId) {
         await prisma.discussion.update({ where: { id: discussionId }, data: { moderatorSessionId: logicalModeratorSessionId } });
       }
-      const runModeratorAttempt = (attempt: number) => {
-        const sessionId = freshTurnSessionId(discussionId, `moderator-${attempt}`);
-        writeModeratorManifestForSession(sessionId, discussionId);
-        return runModeratorTurn(discussionId, round, state, acceptedMessageIds, sessionId, attempt);
-      };
+      // P0：不自动重试、不构造 fallback proposal；失败即终止讨论
+      const sessionId = freshTurnSessionId(discussionId, "moderator");
+      await writeModeratorManifestForSession(sessionId, discussionId);
       let proposal: StateProposal;
       try {
-        proposal = await runModeratorAttempt(1);
+        proposal = await runModeratorTurn(discussionId, round, state, acceptedMessageIds, sessionId);
       } catch (e) {
-        // 重试一次（模型输出可能不稳定）
-        try {
-          proposal = await runModeratorAttempt(2);
-        } catch {
-          // 兜底：用本轮人格回复作为共识摘要，保证讨论能完成
-          proposal = {
-            schemaVersion: 1,
-            basedOnStateVersion: state.round,
-            round,
-            summary: roundOutputs.map((o) => `${o.name}：${o.text}`).join("\n") || state.summary,
-            evidence: [],
-            decisions: [],
-            openQuestions: [],
-            acceptedMessageIds,
-          };
-        }
+        // 保留旧 discussionState；设置 moderatorStatus=failed 和 Discussion failed，不写伪造数据。
+        // 原始错误向上传播，由外层 catch 统一标记。
+        await prisma.discussion.update({
+          where: { id: discussionId },
+          data: { status: "failed", moderatorStatus: "failed" },
+        });
+        publish(discussionId, { type: "change" });
+        throw e;
       }
 
       state = await commitStateProposal(discussionId, proposal, {
@@ -270,13 +289,19 @@ export async function runDiscussion(discussionId: string): Promise<void> {
       publish(discussionId, { type: "change" });
     }
 
+    // 成功标记只允许出现在所有轮次和 Moderator proposal 都真实成功之后
     await prisma.discussion.update({ where: { id: discussionId }, data: { status: "done" } });
     publish(discussionId, { type: "change" });
-  } catch (e) {
-    const error = e instanceof Error ? e.message : String(e);
-    await prisma.discussion.update({ where: { id: discussionId }, data: { status: "failed" } });
+  } catch {
+    // 外层 catch：绝不把异常后的流程继续到 status done；保持非成功状态
+    const current = await prisma.discussion.findUnique({ where: { id: discussionId } });
+    if (current && current.status !== "failed") {
+      await prisma.discussion.update({
+        where: { id: discussionId },
+        data: { status: "failed" },
+      });
+    }
     publish(discussionId, { type: "change" });
-    void error;
   } finally {
     // Runtime 常驻：仅 Drain/shutdown 时关闭；处者（如 Worker shutdown）调用 shutdownRuntime
   }

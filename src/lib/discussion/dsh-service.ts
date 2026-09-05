@@ -3,19 +3,13 @@
  * 每个回合使用自己的 session manifest，确保 DSH 插件读取到当前讨论的人格 Skill。
  */
 import { prisma } from "@/lib/db";
-import { generateText } from "ai";
 import { randomUUID } from "node:crypto";
 import { ensurePersonaSnapshot, type PersonaSnapshot } from "@/lib/dsh/snapshot";
 import { deleteManifest, parseManifest, writeManifestAtomic, type RuntimeSessionManifest } from "@/lib/dsh/manifest";
 import { getDshTurnConfig } from "@/lib/runtime/singleton";
 import { runTurnViaProcess } from "@/lib/runtime/turn-process";
-import { getSetting } from "@/lib/settings/store";
-import { decrypt } from "@/lib/settings/encryption";
-import { buildModel } from "@/lib/llm/providers";
-import { normalizeProvider } from "@/lib/llm/constants";
-import { llmTimeoutMs } from "@/lib/llm/timeout";
 import { publish } from "./broadcast";
-import { DiscussionArchivedError, DshManifestError } from "@/lib/dsh/errors";
+import { DiscussionArchivedError, DshError, DshManifestError } from "@/lib/dsh/errors";
 
 /** 从 DB 读取 Persona 源（供快照） */
 async function loadPersonaSource(personaId: string) {
@@ -212,7 +206,8 @@ export interface RunTurnResult {
 
 /**
  * 1v1 单个回合：写 manifest → 独立 DSH 进程 → 投影 DiscussionMessage。
- * @param isSteerFollowup 是否后续追问（首轮则先 ensurePersonaSession）
+ * P0：唯一生成调用是 DSH runner；DSH 失败不得回退 AI SDK，必须将
+ * turn/participant/discussion 标记为 failed 并返回失败结果。
  */
 export async function runOneOnOneTurn(
   discussionId: string,
@@ -226,7 +221,45 @@ export async function runOneOnOneTurn(
   const isOneOnOne = Array.isArray(d.personaIds) && d.personaIds.length === 1;
 
   const turnSessionId = freshTurnSessionId(discussionId, personaId);
-  const { participant, persona } = await ensurePersonaSession(discussionId, personaId, turnSessionId);
+  let participant: { id: string; dshSessionId: string };
+  let persona: { name: string; systemPrompt: string };
+
+  // 失败辅助：把 turn/participant/discussion 状态落为 failed（讨论自身失败保持非成功）。
+  // 注意：不抛 new error —— 标记失败本身的异常不得覆盖原始 DSH 错误。
+  const markFailed = async (errorCode: string, error: string) => {
+    const msg = error.slice(0, 300);
+    if (turnSessionId) {
+      await prisma.discussionTurn.updateMany({
+        where: { discussionId, participantId: participant?.id || undefined, sessionId: turnSessionId, status: "running" },
+        data: { status: "failed", errorCode, errorMessage: msg, completedAt: new Date() },
+      }).catch(() => undefined);
+    }
+    if (participant?.id) {
+      await prisma.discussionParticipant.update({
+        where: { id: participant.id },
+        data: { status: "failed", lastError: msg },
+      }).catch(() => undefined);
+    }
+    if (isOneOnOne) {
+      await prisma.discussion.update({ where: { id: discussionId }, data: { status: "failed" } }).catch(() => undefined);
+    }
+    publish(discussionId, { type: "change" });
+    return { participantId: participant?.id ?? "", sessionId: turnSessionId, finalText: "", eventsWritten: 0, status: "failed" as const, error: msg };
+  };
+
+  // manifest/快照/配置失败发生在 DiscussionTurn 建立前：仍更新 participant/discussion 状态
+  try {
+    const ensured = await ensurePersonaSession(discussionId, personaId, turnSessionId);
+    participant = ensured.participant;
+    persona = ensured.persona;
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e));
+    // DshManifestError 保留精确 code；其他按 DSH_MANIFEST_INVALID 处理（配置/快照失败均属启动前失败）
+    const code = err instanceof DshManifestError ? "DSH_MANIFEST_INVALID" : "DSH_START_FAILED";
+    const existing = await prisma.discussionParticipant.findFirst({ where: { discussionId, personaId } });
+    participant = existing ?? { id: "", dshSessionId: turnSessionId };
+    return markFailed(code, err.message);
+  }
 
   const state = (d.discussionState as unknown) ?? {};
   const prompt = buildPersonaPromptPacket(persona, d.brief, question, state);
@@ -248,36 +281,19 @@ export async function runOneOnOneTurn(
     },
   });
 
-  // 用独立 DSH 回合进程执行；失败时回退 AI SDK 兜底。
-  let result: { finalResponse: string };
+  // P0：唯一生成调用是 DSH runner，无任何隐式 fallback
+  let finalText = "";
   try {
-    result = { finalResponse: await runTurnViaDsh(turnSessionId, prompt) };
-  } catch {
-    // 回退：AI SDK 进程内生成（确保讨论能出回复）
-    try {
-      result = { finalResponse: await runViaAiSdk(persona.name, persona.systemPrompt, d.brief, question) };
-    } catch (aiErr) {
-      const error = aiErr instanceof Error ? aiErr.message : String(aiErr);
-      await prisma.discussionTurn.update({
-        where: { id: turn.id },
-        data: { status: "failed", errorCode: "DSH_TURN_FAILED", errorMessage: error, completedAt: new Date() },
-      });
-      await prisma.discussionParticipant.update({
-        where: { id: participant.id },
-        data: { status: "failed", lastError: error },
-      });
-      if (isOneOnOne) {
-        await prisma.discussion.update({ where: { id: discussionId }, data: { status: "failed" } });
-      }
-      publish(discussionId, { type: "change" });
-      return { participantId: participant.id, sessionId: turnSessionId, finalText: "", eventsWritten: 0, status: "failed", error };
-    }
+    finalText = (await runTurnViaDsh(turnSessionId, prompt)) ?? "";
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e));
+    const dshErr = err instanceof DshError ? err : undefined;
+    return markFailed(dshErr?.code ?? "DSH_TURN_FAILED", dshErr?.message ?? err.message);
   }
 
   // 持久化 DSH 原始事件（sessionId,seq 去重）—— 进程方式默认不返回全量事件，此处计 0
   const eventsWritten = 0;
 
-  const finalText = result.finalResponse ?? "";
   if (finalText.trim()) {
     const msg = await prisma.discussionMessage.create({
       data: {
@@ -306,27 +322,7 @@ export async function runOneOnOneTurn(
     }
     publish(discussionId, { type: "change" });
   } else {
-    const error = "DSH 返回空回复";
-    await prisma.discussionParticipant.update({
-      where: { id: participant.id },
-      data: { status: "failed", lastError: error },
-    });
-    await prisma.discussionTurn.update({
-      where: { id: turn.id },
-      data: { status: "failed", errorCode: "DSH_TURN_FAILED", errorMessage: error, completedAt: new Date() },
-    });
-    if (isOneOnOne) {
-      await prisma.discussion.update({ where: { id: discussionId }, data: { status: "failed" } });
-    }
-    publish(discussionId, { type: "change" });
-    return {
-      participantId: participant.id,
-      sessionId: turnSessionId,
-      finalText: "",
-      eventsWritten,
-      status: "failed",
-      error,
-    };
+    return markFailed("DSH_TURN_FAILED", "DSH 返回空回复");
   }
 
   return {
@@ -387,35 +383,4 @@ export async function writeModeratorManifestForSession(sessionId: string, discus
   };
   parseManifest(manifest);
   writeManifestAtomic(manifest);
-}
-
-/**
- * AI SDK 进程内生成（兜底路径）。正常情况下常驻 DSH Runtime 已能稳定产出；
- * 仅在 DSH 真正失败时兜底，确保讨论永远能出内容。
- */
-async function runViaAiSdk(personaName: string, systemPrompt: string, brief: string, question: string): Promise<string> {
-  const [providerRaw, baseUrl, keyCipher, modelRaw, timeoutRaw] = await Promise.all([
-    getSetting("llm.provider"),
-    getSetting("llm.baseUrl"),
-    getSetting("llm.apiKey"),
-    getSetting("llm.defaultModel"),
-    getSetting("llm.timeoutSeconds"),
-  ]);
-  const provider = normalizeProvider(providerRaw);
-  const apiKey = keyCipher ? decrypt(keyCipher) : "";
-  if (!apiKey) throw new Error("未配置有效的 API Key");
-
-  const modelObj = buildModel(provider, apiKey, modelRaw ?? "", baseUrl || undefined);
-  const sys =
-    systemPrompt +
-    `\n\n【讨论背景】\n${brief}` +
-    `\n\n你现在是「${personaName}」。请以你的立场与风格，直接回答用户的问题，用第一人称，简洁、有观点、不绕弯。`;
-
-  const { text } = await generateText({
-    model: modelObj,
-    system: sys,
-    prompt: question,
-    abortSignal: AbortSignal.timeout(llmTimeoutMs(timeoutRaw)),
-  });
-  return text?.trim() || "（无回应）";
 }
