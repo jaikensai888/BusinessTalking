@@ -143,6 +143,7 @@ describe("DiscussionSessionManager", () => {
       return fake;
     });
     await expect(sessionManager.run(input())).rejects.toBe(fatal);
+    await expect(sessionManager.run(input({ sessionId: "retry-after-fatal" }))).rejects.toBe(fatal);
     expect(createProcess).toHaveBeenCalledTimes(1);
     expect(processes[0].run).toHaveBeenCalledTimes(1);
   });

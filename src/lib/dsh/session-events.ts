@@ -85,6 +85,11 @@ function requireString(value: unknown, name: string): string {
   return value;
 }
 
+function stringValue(value: unknown, name: string): string {
+  if (typeof value !== "string") throw new Error(`${name} must be a string`);
+  return value;
+}
+
 function requireObject(value: unknown, name: string): Record<string, unknown> {
   if (!isRecord(value)) throw new Error(`${name} must be an object`);
   return value;
@@ -113,7 +118,7 @@ function parseDoneFrame(value: Record<string, unknown>): RunnerDoneFrame {
     type: "done",
     requestId: requireString(value.requestId, "requestId"),
     sessionId: requireString(value.sessionId, "sessionId"),
-    finalResponse: requireString(value.finalResponse, "finalResponse"),
+    finalResponse: stringValue(value.finalResponse, "finalResponse"),
   };
 }
 

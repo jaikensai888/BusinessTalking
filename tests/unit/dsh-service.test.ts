@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => {
     mockDiscussionFindUnique: vi.fn(),
     mockTurnUpdate: vi.fn(),
     mockRunTurnViaProcess: vi.fn(),
+    mockRunDiscussionDshTurn: vi.fn(),
   };
 });
 
@@ -33,6 +34,7 @@ const {
   mockDiscussionFindUnique,
   mockTurnUpdate,
   mockRunTurnViaProcess,
+  mockRunDiscussionDshTurn,
 } = mocks;
 
 vi.mock("@/lib/db", () => ({
@@ -72,11 +74,25 @@ vi.mock("@/lib/settings/store", () => ({
 vi.mock("@/lib/settings/encryption", () => ({
   decrypt: vi.fn(() => "sk-test-not-real"),
 }));
+vi.mock("@/lib/runtime/singleton", () => ({
+  getDshTurnConfig: vi.fn(async () => ({
+    profile: { provider: "openai", model: "deepseek-chat", baseUrl: "https://api.deepseek.com", profileHash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" },
+    apiKey: "sk-test-not-real",
+    cwd: process.cwd(),
+    dshBin: "dsh",
+    dshHome: "data/dsh-home",
+    patches: [],
+  })),
+  getDiscussionSessionManager: vi.fn(() => ({ isBusy: () => false })),
+}));
 vi.mock("@/lib/discussion/broadcast", () => ({
   publish: vi.fn(),
 }));
 vi.mock("@/lib/runtime/turn-process", () => ({
   runTurnViaProcess: (...a: unknown[]) => mockRunTurnViaProcess(...a),
+}));
+vi.mock("@/lib/discussion/run-dsh-turn", () => ({
+  runDiscussionDshTurn: (...a: unknown[]) => mockRunDiscussionDshTurn(...a),
 }));
 
 import { runOneOnOneTurn } from "@/lib/discussion/dsh-service";
@@ -127,23 +143,31 @@ describe("runOneOnOneTurn (P0 fail-closed)", () => {
     mockDiscussionFindUnique.mockReset().mockResolvedValue(discussionRow());
     mockPersonaFindUnique.mockReset();
     mockRunTurnViaProcess.mockReset();
+    mockRunDiscussionDshTurn.mockReset();
   });
 
   it("marks turn/participant/discussion failed when the DSH runner throws (no AI SDK fallback)", async () => {
     const { tmp, skillRel } = setupWorkingSnapshot();
     try {
       mockPersonaFindUnique.mockResolvedValue({ id: "p1", name: "测试", systemPrompt: "sys", skillPath: skillRel });
-      mockRunTurnViaProcess.mockRejectedValue(new DshProtocolError("wire lost"));
+      mockRunDiscussionDshTurn.mockResolvedValue({
+        turnId: "turn-1",
+        participantId: "participant-1",
+        sessionId: "bt-discussion-d1-p1",
+        finalText: "",
+        eventsWritten: 2,
+        status: "failed",
+        errorCode: "DSH_PROTOCOL_FAILED",
+        error: "wire lost",
+      });
 
       const res = await runOneOnOneTurn("d1", "p1", "问题？");
 
       expect(res.status).toBe("failed");
       expect(mockMessageCreate).not.toHaveBeenCalled(); // 没有 DiscussionMessage
-      // turn 标记 failed（DSH_PROTOCOL_FAILED code）
-      const turnUpdates = mockTurnUpdateMany.mock.calls.map(
-        (c) => (c[0] as { data?: { status?: string; errorCode?: string } })?.data
-      );
-      expect(turnUpdates.some((d) => d?.status === "failed")).toBe(true);
+      expect(mockRunDiscussionDshTurn).toHaveBeenCalledWith(expect.objectContaining({
+        sessionId: "bt-discussion-d1-p1",
+      }));
       // participant 标记 failed
       const participantStatuses = mockParticipantUpdate.mock.calls.map(
         (c) => (c[0] as { data?: { status?: string } }).data?.status
@@ -165,13 +189,13 @@ describe("runOneOnOneTurn (P0 fail-closed)", () => {
     try {
       // persona skillPath 指向不存在文件 → ensurePersonaSnapshot 抛 DshManifestError（启动前失败）
       mockPersonaFindUnique.mockResolvedValue({ id: "p1", name: "测试", systemPrompt: "sys", skillPath: "missing/SKILL.md" });
-      mockRunTurnViaProcess.mockResolvedValue({ sessionId: "x", finalResponse: "不该被调用" });
+      mockRunDiscussionDshTurn.mockResolvedValue({ status: "completed" });
 
       const res = await runOneOnOneTurn("d1", "p1", "问题？");
 
       expect(res.status).toBe("failed");
       expect(mockMessageCreate).not.toHaveBeenCalled();
-      expect(mockRunTurnViaProcess).not.toHaveBeenCalled(); // 未启动模型
+      expect(mockRunDiscussionDshTurn).not.toHaveBeenCalled(); // 未启动模型
       // participant/discussion 状态仍被标记 failed（不保持 ready）
       const participantStatuses = mockParticipantUpdate.mock.calls.map(
         (c) => (c[0] as { data?: { status?: string } }).data?.status
@@ -190,17 +214,24 @@ describe("runOneOnOneTurn (P0 fail-closed)", () => {
     const { tmp, skillRel } = setupWorkingSnapshot();
     try {
       mockPersonaFindUnique.mockResolvedValue({ id: "p1", name: "测试", systemPrompt: "sys", skillPath: skillRel });
-      mockRunTurnViaProcess.mockResolvedValue({ sessionId: "bt-turn-d1-p1-x", finalResponse: "   " });
+      mockRunDiscussionDshTurn.mockResolvedValue({
+        turnId: "turn-1",
+        participantId: "participant-1",
+        sessionId: "bt-discussion-d1-p1",
+        finalText: "",
+        eventsWritten: 2,
+        status: "failed",
+        errorCode: "DSH_TURN_FAILED",
+        error: "DSH 未收到非空 assistant/message",
+      });
 
       const res = await runOneOnOneTurn("d1", "p1", "问题？");
 
       expect(res.status).toBe("failed");
       expect(mockMessageCreate).not.toHaveBeenCalled();
-      // 空回复不产生 DiscussionMessage，turn 标记 failed
-      const turnUpdates = mockTurnUpdateMany.mock.calls.map(
-        (c) => (c[0] as { data?: { status?: string } })?.data
-      );
-      expect(turnUpdates.some((d) => d?.status === "failed")).toBe(true);
+      expect(mockRunDiscussionDshTurn).toHaveBeenCalledWith(expect.objectContaining({
+        sessionId: "bt-discussion-d1-p1",
+      }));
     } finally {
       process.chdir(origCwd);
       fs.rmSync(tmp, { recursive: true, force: true });

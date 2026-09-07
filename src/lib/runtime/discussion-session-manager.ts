@@ -5,6 +5,7 @@ import {
   DshSessionBusyError,
 } from "@/lib/dsh/errors";
 import type { DshNotification } from "@/lib/dsh/events";
+import { getDiscussionApprovalBridge } from "@/lib/discussion/approval-bridge";
 import { DshSessionProcess, type DshSessionProcessOptions } from "./session-process";
 import type { RuntimeProfile, RuntimeRunResult } from "./types";
 
@@ -87,6 +88,7 @@ export class DiscussionSessionManager {
 
   async closeDiscussion(discussionId: string): Promise<void> {
     const record = this.records.get(discussionId);
+    getDiscussionApprovalBridge().cancelDiscussion(discussionId, "unavailable");
     if (!record) return;
     this.records.delete(discussionId);
     record.callbacks.clear();
@@ -97,6 +99,9 @@ export class DiscussionSessionManager {
   async closeAll(): Promise<void> {
     const records = [...this.records.values()];
     this.records.clear();
+    for (const record of records) {
+      getDiscussionApprovalBridge().cancelDiscussion(record.discussionId, "unavailable");
+    }
     await Promise.all(records.map(async (record) => {
       record.callbacks.clear();
       record.activeSessions.clear();
@@ -107,9 +112,10 @@ export class DiscussionSessionManager {
   private async getOrCreateRecord(input: DiscussionSessionRunInput): Promise<DiscussionRecord> {
     let record = this.records.get(input.discussionId);
     if (record?.fatalError) {
-      if (record.activeSessions.size > 0) throw record.fatalError;
-      await this.closeDiscussion(input.discussionId);
-      record = undefined;
+      // A fatal process is terminal for this Discussion. Restarting here
+      // would silently replay a prompt against a fresh runtime and hide the
+      // original failure; only an explicit close/drain may clear the record.
+      throw record.fatalError;
     }
     if (record && record.profileHash !== input.profile.profileHash) {
       if (record.activeSessions.size > 0) {
@@ -132,6 +138,7 @@ export class DiscussionSessionManager {
       },
       onFatal: (error) => {
         created.fatalError = error;
+        getDiscussionApprovalBridge().cancelDiscussion(input.discussionId, "unavailable");
       },
     };
     const process = this.createProcess(processOptions);

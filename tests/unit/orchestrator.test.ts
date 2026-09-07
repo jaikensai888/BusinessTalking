@@ -1,17 +1,15 @@
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import { extractJson, buildGroupPersonaPrompt, runModeratorTurn } from "@/lib/discussion/orchestrator";
 import { emptyState } from "@/lib/discussion/state";
 import { DshTurnError, DshProtocolError, DshStartFailedError } from "@/lib/dsh/errors";
 import { isFatalDiscussionRuntimeError } from "@/lib/dsh/errors";
 
-vi.mock("@/lib/discussion/dsh-service", () => ({
-  runTurnViaDsh: vi.fn(),
-  freshTurnSessionId: vi.fn((_d, a) => `bt-turn-${_d}-${a}-x`),
+const mockRunDiscussionDshTurn = vi.fn();
+vi.mock("@/lib/discussion/run-dsh-turn", () => ({
+  runDiscussionDshTurn: (...args: unknown[]) => mockRunDiscussionDshTurn(...args),
 }));
 
-import { runTurnViaDsh } from "@/lib/discussion/dsh-service";
-
-const mockRunTurn = vi.mocked(runTurnViaDsh);
+beforeEach(() => mockRunDiscussionDshTurn.mockReset());
 
 describe("orchestrator pure helpers", () => {
   it("extracts a JSON object from plain or wrapped text", () => {
@@ -48,7 +46,7 @@ describe("orchestrator moderator P0 fail-closed", () => {
 
   it("never falls back to a truncated proposal when Moderator returns invalid JSON", async () => {
     const state = emptyState("brief");
-    mockRunTurn.mockResolvedValueOnce("not json at all");
+    mockRunDiscussionDshTurn.mockResolvedValueOnce({ status: "completed", finalText: "not json at all" });
     await expect(
       runModeratorTurn("d1", 1, state, ["msg-1"], "bt-turn-moderator-x")
     ).rejects.toThrow(DshTurnError);
@@ -56,7 +54,7 @@ describe("orchestrator moderator P0 fail-closed", () => {
 
   it("throws on empty Moderator response instead of producing a fake summary", async () => {
     const state = emptyState("brief");
-    mockRunTurn.mockResolvedValueOnce("   ");
+    mockRunDiscussionDshTurn.mockResolvedValueOnce({ status: "completed", finalText: "   " });
     await expect(
       runModeratorTurn("d1", 1, state, ["msg-1"], "bt-turn-moderator-y")
     ).rejects.toThrow(/空回复/);
@@ -65,7 +63,7 @@ describe("orchestrator moderator P0 fail-closed", () => {
   it("propagates DSH runtime errors verbatim (no retry, no fallback)", async () => {
     const state = emptyState("brief");
     const boom = new DshProtocolError("wire lost");
-    mockRunTurn.mockRejectedValueOnce(boom);
+    mockRunDiscussionDshTurn.mockRejectedValueOnce(boom);
     await expect(
       runModeratorTurn("d1", 1, state, ["msg-1"], "bt-turn-moderator-z")
     ).rejects.toBe(boom);

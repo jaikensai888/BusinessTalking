@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   turnUpdateMany: vi.fn(),
   messageCreate: vi.fn(),
   runTurnViaDsh: vi.fn(),
+  runDiscussionDshTurn: vi.fn(),
   freshTurnSessionId: vi.fn(),
   ensurePersonaSession: vi.fn(),
   writeModeratorManifestForSession: vi.fn(),
@@ -41,6 +42,10 @@ vi.mock("@/lib/discussion/dsh-service", () => ({
   writeModeratorManifestForSession: (...args: unknown[]) => mocks.writeModeratorManifestForSession(...args),
 }));
 
+vi.mock("@/lib/discussion/run-dsh-turn", () => ({
+  runDiscussionDshTurn: (...args: unknown[]) => mocks.runDiscussionDshTurn(...args),
+}));
+
 vi.mock("@/lib/discussion/broadcast", () => ({
   publish: vi.fn(),
 }));
@@ -64,7 +69,7 @@ beforeEach(() => {
   mocks.discussionUpdate.mockResolvedValue({});
   mocks.personaFindUnique.mockResolvedValue({ id: "p1", name: "人格一", systemPrompt: "sys" });
   mocks.freshTurnSessionId.mockReturnValue("bt-turn-d1-p1-x");
-  mocks.ensurePersonaSession.mockResolvedValue({ participant: { id: "participant-1" } });
+  mocks.ensurePersonaSession.mockResolvedValue({ participant: { id: "participant-1", dshSessionId: "bt-discussion-d1-p1" } });
   mocks.turnCreate.mockResolvedValue({ id: "turn-1" });
   mocks.turnUpdate.mockResolvedValue({});
   mocks.turnUpdateMany.mockResolvedValue({ count: 1 });
@@ -74,7 +79,7 @@ beforeEach(() => {
 
 describe("runDiscussion failure state", () => {
   it("marks the active persona turn and participant failed before terminating on fatal DSH errors", async () => {
-    mocks.runTurnViaDsh.mockRejectedValue(new DshProtocolError("wire lost"));
+    mocks.runDiscussionDshTurn.mockRejectedValue(new DshProtocolError("wire lost"));
 
     await runDiscussion("d1");
 
@@ -96,7 +101,15 @@ describe("runDiscussion failure state", () => {
   });
 
   it("marks moderatorStatus failed when the moderator manifest cannot be created", async () => {
-    mocks.runTurnViaDsh.mockResolvedValue("真实人格发言");
+    mocks.runDiscussionDshTurn.mockResolvedValue({
+      turnId: "turn-1",
+      participantId: "participant-1",
+      sessionId: "bt-discussion-d1-p1",
+      finalText: "真实人格发言",
+      eventsWritten: 3,
+      status: "completed",
+      outputMessageId: "message-1",
+    });
     mocks.writeModeratorManifestForSession.mockRejectedValue(new DshManifestError("manifest invalid"));
 
     await runDiscussion("d1");

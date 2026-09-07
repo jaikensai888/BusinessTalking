@@ -4,7 +4,9 @@
  * StateProposal，BusinessTalking 校验并原子提交。
  */
 import { prisma } from "@/lib/db";
-import { ensurePersonaSession, freshTurnSessionId, runTurnViaDsh, writeModeratorManifestForSession } from "./dsh-service";
+import { ensurePersonaSession, writeModeratorManifestForSession } from "./dsh-service";
+import { runDiscussionDshTurn } from "./run-dsh-turn";
+import type { Prisma } from "@prisma/client";
 import { parseStateProposal, emptyState, type DiscussionState, type StateProposal } from "./state";
 import { publish } from "./broadcast";
 import {
@@ -12,6 +14,7 @@ import {
   DshTurnError,
   isFatalDiscussionRuntimeError,
   DshError,
+  type DshErrorCode,
 } from "@/lib/dsh/errors";
 
 /** 稳定参与者顺序：按 discussion.personaIds 顺序 */
@@ -74,12 +77,31 @@ export async function runModeratorTurn(
     `# 本轮已接受的消息 ID\n${safeJson(acceptedMessageIds)}`,
   ].join("\n\n");
 
-  const finalResponse = await runTurnViaDsh(moderatorSessionId, prompt);
-  if (!finalResponse.trim()) {
+  const result = await runDiscussionDshTurn({
+    discussionId,
+    participantId: null,
+    sessionId: moderatorSessionId,
+    kind: "moderator",
+    round,
+    attempt: 1,
+    prompt,
+    inputSnapshot: {
+      prompt,
+      stateVersion: state.round,
+      acceptedMessageIds,
+    } as Prisma.InputJsonValue,
+  });
+  if (result.status === "failed") {
+    throw new DshError(
+      (result.errorCode ?? "DSH_PROTOCOL_FAILED") as DshErrorCode,
+      result.error ?? "Moderator DSH 回合失败",
+    );
+  }
+  if (!result.finalText.trim()) {
     throw new DshTurnError("Moderator 返回空回复");
   }
 
-  const raw = extractJson(finalResponse);
+  const raw = extractJson(result.finalText);
   return parseStateProposal(raw); // 严格校验；失败抛错（不修复）
 }
 
@@ -178,64 +200,33 @@ export async function runDiscussion(discussionId: string): Promise<void> {
 
         let currentTurnSessionId: string | undefined;
         let currentParticipantId: string | undefined;
-        let currentTurnId: string | undefined;
         try {
-          const turnSessionId = freshTurnSessionId(discussionId, personaId);
-          currentTurnSessionId = turnSessionId;
-          const { participant } = await ensurePersonaSession(discussionId, personaId, turnSessionId);
+          const { participant } = await ensurePersonaSession(discussionId, personaId);
+          currentTurnSessionId = participant.dshSessionId;
           currentParticipantId = participant.id;
           await prisma.discussionParticipant.update({ where: { id: participant.id }, data: { status: "running" } });
           publish(discussionId, { type: "change" });
 
-          // 记录本回合输入快照（供失败重试用）
-          const turn = await prisma.discussionTurn.create({
-            data: {
-              discussionId,
-              participantId: participant.id,
-              sessionId: turnSessionId,
-              kind: "persona",
-              round,
-              attempt: 1,
-              inputSnapshot: { prompt, stateVersion: state.round } as unknown as object,
-              status: "running",
-            },
+          const result = await runDiscussionDshTurn({
+            discussionId,
+            participantId: participant.id,
+            sessionId: participant.dshSessionId,
+            kind: "persona",
+            round,
+            attempt: 1,
+            prompt,
+            inputSnapshot: { prompt, stateVersion: d.stateVersion } as Prisma.InputJsonValue,
+            personaId,
+            sender: persona.name,
           });
-          currentTurnId = turn.id;
-
-          const text = (await runTurnViaDsh(turnSessionId, prompt)).trim();
-          if (text) {
-            const msg = await prisma.discussionMessage.create({
-              data: {
-                discussionId,
-                personaId,
-                participantId: participant.id,
-                sessionId: turnSessionId,
-                sender: persona.name,
-                role: "persona",
-                turn: round,
-                content: text,
-              },
-            });
-            roundOutputs.push({ name: persona.name, text: text.slice(0, 120) });
-            acceptedMessageIds.push(msg.id);
-            await prisma.discussionTurn.update({
-              where: { id: turn.id },
-              data: { status: "completed", outputMessageId: msg.id, completedAt: new Date() },
-            });
-          } else {
-            // P0：空回复按 failed turn 处理，不得产生 completed turn
-            await prisma.discussionTurn.update({
-              where: { id: turn.id },
-              data: { status: "failed", errorCode: "DSH_TURN_FAILED", errorMessage: "DSH 返回空回复", completedAt: new Date() },
-            });
-            await prisma.discussionParticipant.update({
-              where: { id: participant.id },
-              data: { status: "failed", lastError: "DSH 返回空回复" },
-            });
-            publish(discussionId, { type: "change" });
-            continue;
+          if (result.status === "failed") {
+            throw new DshError(
+              (result.errorCode ?? "DSH_PROTOCOL_FAILED") as DshErrorCode,
+              result.error ?? "DSH Persona 回合失败",
+            );
           }
-          await prisma.discussionParticipant.update({ where: { id: participant.id }, data: { status: "completed" } });
+          roundOutputs.push({ name: persona.name, text: result.finalText.slice(0, 120) });
+          if (result.outputMessageId) acceptedMessageIds.push(result.outputMessageId);
         } catch (e) {
           const dshErr = e instanceof DshError ? e : undefined;
           const error = dshErr?.message ?? (e instanceof Error ? e.message : String(e));
@@ -246,7 +237,7 @@ export async function runDiscussion(discussionId: string): Promise<void> {
           if (participant) {
             await prisma.discussionTurn.updateMany({
               where: {
-                ...(currentTurnId ? { id: currentTurnId } : { discussionId }),
+                discussionId,
                 participantId: participant.id,
                 ...(currentTurnSessionId ? { sessionId: currentTurnSessionId } : {}),
                 status: "running",
@@ -269,15 +260,14 @@ export async function runDiscussion(discussionId: string): Promise<void> {
         throw new DshTurnError(`第 ${round} 轮没有任何真实 Persona 发言，放弃 Moderator 汇总`);
       }
 
-      // Moderator 汇总（独立 Session；每回合全新 session，避免复用已完结 session 空回复）
+      // Moderator 汇总：整个 Discussion 只使用一个稳定 Session。
       const logicalModeratorSessionId = d.moderatorSessionId ?? `bt-discussion-${discussionId}-moderator`;
       if (!d.moderatorSessionId) {
         await prisma.discussion.update({ where: { id: discussionId }, data: { moderatorSessionId: logicalModeratorSessionId } });
       }
       // P0：不自动重试、不构造 fallback proposal；失败即终止讨论
-      const sessionId = freshTurnSessionId(discussionId, "moderator");
       try {
-        await writeModeratorManifestForSession(sessionId, discussionId);
+        await writeModeratorManifestForSession(logicalModeratorSessionId, discussionId);
       } catch (e) {
         // Manifest/configuration failure happens before runModeratorTurn's
         // error boundary, but it is still a Moderator failure from the
@@ -291,7 +281,7 @@ export async function runDiscussion(discussionId: string): Promise<void> {
       }
       let proposal: StateProposal;
       try {
-        proposal = await runModeratorTurn(discussionId, round, state, acceptedMessageIds, sessionId);
+        proposal = await runModeratorTurn(discussionId, round, state, acceptedMessageIds, logicalModeratorSessionId);
       } catch (e) {
         // 保留旧 discussionState；设置 moderatorStatus=failed 和 Discussion failed，不写伪造数据。
         // 原始错误向上传播，由外层 catch 统一标记。
