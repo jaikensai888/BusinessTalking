@@ -22,6 +22,7 @@ import {
   DshTurnError,
   DshError,
 } from "@/lib/dsh/errors";
+import { buildDshChildEnv } from "./dsh-child-env";
 
 export interface TurnRequest {
   sessionId: string;
@@ -41,21 +42,14 @@ export interface TurnResult {
 }
 
 function buildEnv(req: TurnRequest): NodeJS.ProcessEnv {
-  const env = {} as NodeJS.ProcessEnv;
-  for (const k of ["PATH","Path","HOME","USERPROFILE","TEMP","TMP","TMPDIR","SystemRoot","SYSTEMROOT","COMSPEC","PATHEXT","WINDIR","LANG","LC_ALL","NODE_PATH","PWD","INIT_CWD","APPDATA","LOCALAPPDATA"]) {
-    if (process.env[k]) env[k] = process.env[k];
-  }
+  const env = buildDshChildEnv({
+    ...req,
+    dshBin: req.dshBin ?? "",
+    dshHome: req.dshHome ?? path.join(req.cwd, "data", "dsh-home"),
+    patches: req.patches ?? [],
+  });
   env.BT_DSH_SESSION_ID = req.sessionId;
   env.BT_DSH_PROMPT = req.prompt;
-  env.BT_DSH_PROVIDER = req.provider;
-  env.BT_DSH_MODEL = req.model;
-  env.BT_DSH_CWD = req.cwd;
-  // P0：DSH 权限显式只读（不用下游默认 workspace-write）
-  env.DSH_PERMISSION_MODE = "read-only";
-  if (req.dshHome) env.BT_DSH_HOME = req.dshHome;
-  if (req.dshBin) env.BT_DSH_BIN = req.dshBin;
-  if (req.apiKey) { env.BT_DSH_API_KEY = req.apiKey; env.DEEPSEEK_API_KEY = req.apiKey; env.OPENAI_API_KEY = req.apiKey; env.ANTHROPIC_API_KEY = req.apiKey; }
-  if (req.patches?.length) env.BT_DSH_PATCHES = req.patches.join(",");
   return env;
 }
 
