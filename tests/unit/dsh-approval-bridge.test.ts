@@ -28,6 +28,49 @@ describe("DiscussionApprovalBridge", () => {
     await expect(pending).resolves.toBe("allowed-once");
   });
 
+  it("keeps a session-scoped tool approval for later requests in the same DSH Session", async () => {
+    const bridge = new DiscussionApprovalBridge({ timeoutMs: 1000 });
+    const first = bridge.wait(request);
+    const queued = bridge.wait({ ...request, approvalId: "approval-2", callId: "call-2" });
+
+    expect(bridge.decide("d1", "approval-1", "allowed-session")).toBe("accepted");
+    await expect(first).resolves.toBe("allowed-once");
+    await expect(queued).resolves.toBe("allowed-once");
+
+    await expect(bridge.wait({ ...request, approvalId: "approval-3", callId: "call-3" })).resolves.toBe("allowed-once");
+    expect(bridge.listPending("d1")).toEqual([]);
+  });
+
+  it("does not carry a session-scoped approval to another Session or tool", async () => {
+    const bridge = new DiscussionApprovalBridge({ timeoutMs: 1000 });
+    const first = bridge.wait(request);
+    expect(bridge.decide("d1", "approval-1", "allowed-session")).toBe("accepted");
+    await expect(first).resolves.toBe("allowed-once");
+
+    const otherSession = bridge.wait({ ...request, approvalId: "approval-2", sessionId: "session-2" });
+    const otherTool = bridge.wait({ ...request, approvalId: "approval-3", toolName: "other-tool" });
+    expect(bridge.listPending("d1")).toMatchObject([
+      { approvalId: "approval-2", sessionId: "session-2" },
+      { approvalId: "approval-3", toolName: "other-tool" },
+    ]);
+    bridge.cancelDiscussion("d1", "unavailable");
+    await expect(otherSession).resolves.toBe("unavailable");
+    await expect(otherTool).resolves.toBe("unavailable");
+  });
+
+  it("clears session-scoped permissions when the Discussion Session is closed", async () => {
+    const bridge = new DiscussionApprovalBridge({ timeoutMs: 1000 });
+    const first = bridge.wait(request);
+    expect(bridge.decide("d1", "approval-1", "allowed-session")).toBe("accepted");
+    await expect(first).resolves.toBe("allowed-once");
+
+    bridge.cancelDiscussion("d1", "unavailable");
+    const afterClose = bridge.wait({ ...request, approvalId: "approval-2", callId: "call-2" });
+    expect(bridge.listPending("d1")).toMatchObject([{ approvalId: "approval-2" }]);
+    bridge.cancelDiscussion("d1", "unavailable");
+    await expect(afterClose).resolves.toBe("unavailable");
+  });
+
   it("accepts only the first decision and rejects conflicting replays", async () => {
     const bridge = new DiscussionApprovalBridge({ timeoutMs: 1000 });
     const pending = bridge.wait(request);

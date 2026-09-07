@@ -64,6 +64,7 @@ describe("dsh-service manifest (P0 Task 3)", () => {
     expect(m.allowedSkills[0].contentHash).toBe(H("persona-skill"));
     // persona 块与 allowedSkills 的 persona-profile 一致
     expect(m.persona?.skillHash).toBe(m.allowedSkills[0].contentHash);
+    expect(m.toolPolicy).toEqual({ webSearch: true, sideEffects: false });
   });
 
   it("includes every DiscussionSkill revision and rejects duplicates/missing packageRoot", async () => {

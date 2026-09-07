@@ -25,6 +25,7 @@ export type SessionProcessFactory = (options: DshSessionProcessOptions) => Sessi
 interface DiscussionRecord {
   discussionId: string;
   profileHash: string;
+  processOptions: DshSessionProcessOptions;
   process: SessionProcessLike;
   activeSessions: Set<string>;
   callbacks: Map<string, (notification: DshNotification) => Promise<void> | void>;
@@ -41,6 +42,14 @@ function validateInput(input: DiscussionSessionRunInput): void {
   if (!input.prompt.trim()) protocolFailure("DSH prompt 不能为空");
   if (!input.profile.profileHash.trim()) protocolFailure("Runtime profileHash 不能为空");
   if (typeof input.onNotification !== "function") protocolFailure("DSH notification callback 缺失");
+}
+
+/** Child environment is fixed at spawn time; detect bridge config drift before reuse. */
+function sameBridgeOptions(left: DshSessionProcessOptions, right: DshSessionProcessOptions): boolean {
+  return left.approvalUrl === right.approvalUrl
+    && left.approvalToken === right.approvalToken
+    && left.internalSearchUrl === right.internalSearchUrl
+    && left.internalSearchToken === right.internalSearchToken;
 }
 
 /** Registry of one persistent DSH runner per Discussion. */
@@ -124,6 +133,13 @@ export class DiscussionSessionManager {
       await this.closeDiscussion(input.discussionId);
       record = undefined;
     }
+    if (record && !sameBridgeOptions(record.processOptions, input.processOptions)) {
+      if (record.activeSessions.size > 0) {
+        throw new DshSessionBusyError("DSH runner 配置已变化，当前回合结束后再重试");
+      }
+      await this.closeDiscussion(input.discussionId);
+      record = undefined;
+    }
     if (record) return record;
 
     const holder: { record?: DiscussionRecord } = {};
@@ -148,6 +164,7 @@ export class DiscussionSessionManager {
     const created: DiscussionRecord = {
       discussionId: input.discussionId,
       profileHash: input.profile.profileHash,
+      processOptions: input.processOptions,
       process,
       activeSessions: new Set(),
       callbacks: new Map(),

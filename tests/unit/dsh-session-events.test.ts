@@ -114,4 +114,30 @@ describe("DSH session event and runner frame contracts", () => {
       reason: "needs approval",
     });
   });
+
+  it("projects nested DSH tool results onto the original tool call", () => {
+    const mapped = extractMappedEvent(
+      notification({
+        type: "tool/result",
+        seq: 6,
+        time: 120,
+        data: {
+          message: {
+            source: { kind: "tool", callId: "call-1" },
+            content: [{
+              type: "tool-result",
+              toolCallId: "call-1",
+              content: [{ type: "text", text: "Error: web_search 不可用" }],
+              isError: true,
+            }],
+          },
+        },
+      }),
+    );
+    expect(projectClientEvent(mapped!)).toEqual({
+      callId: "call-1",
+      status: "error",
+      error: "Error: web_search 不可用",
+    });
+  });
 });

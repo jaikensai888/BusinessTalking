@@ -126,8 +126,8 @@ function validateManifest(cwd, manifest, sessionId) {
   requireHash(profile.profileHash, "runtimeProfile.profileHash");
 
   const policy = manifest.toolPolicy;
-  if (!isObject(policy) || policy.sideEffects !== false || policy.webSearch !== false) {
-    fail("P0 manifest 必须关闭 sideEffects 和 web_search");
+  if (!isObject(policy) || typeof policy.webSearch !== "boolean" || policy.sideEffects !== false) {
+    fail("manifest toolPolicy 必须保持 sideEffects=false 且 webSearch 为布尔值");
   }
 
   // Migration compatibility is safe-only: old manifests get read-only/ask;
@@ -150,6 +150,7 @@ function validateManifest(cwd, manifest, sessionId) {
   if (manifest.kind === "moderator") {
     if (manifest.persona !== undefined && manifest.persona !== null) fail("moderator manifest 不得有 persona");
     if (manifest.allowedSkills.length !== 0) fail("moderator manifest 的 allowedSkills 必须为空");
+    if (manifest.toolPolicy.webSearch) fail("moderator manifest 不得开启 web_search");
     return;
   }
 

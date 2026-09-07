@@ -22,12 +22,18 @@ function displayValue(value: unknown, max = 520): string {
   }
 }
 
+/** A successful retry is also safe to treat as resolved: the bridge is idempotent. */
+export function isApprovalResolutionStatus(status: unknown): boolean {
+  return status === "accepted" || status === "already-decided";
+}
+
 /** DSH-style takeover for a pending, discussion-scoped approval request. */
 export function DshApprovalPanel({ discussionId, approval, toolInput, onResolved }: DshApprovalPanelProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resolvedApprovalId, setResolvedApprovalId] = useState<string | null>(null);
 
-  const decide = async (outcome: "allowed-once" | "rejected") => {
+  const decide = async (outcome: "allowed-session" | "rejected") => {
     if (submitting) return;
     setSubmitting(true);
     setError(null);
@@ -42,10 +48,11 @@ export function DshApprovalPanel({ discussionId, approval, toolInput, onResolved
       );
       let data: { status?: string; error?: string } = {};
       try { data = await response.json(); } catch { /* response body is optional */ }
-      if (!response.ok || data.status !== "accepted") {
+      if (!response.ok || !isApprovalResolutionStatus(data.status)) {
         setError(data.error === "approval_already_decided" ? "该请求已经处理" : data.error ?? "审批请求处理失败");
         return;
       }
+      setResolvedApprovalId(approval.approvalId);
       onResolved?.(approval.approvalId);
     } catch {
       setError("审批请求处理失败，请检查实时连接后重试");
@@ -53,6 +60,8 @@ export function DshApprovalPanel({ discussionId, approval, toolInput, onResolved
       setSubmitting(false);
     }
   };
+
+  if (resolvedApprovalId === approval.approvalId) return null;
 
   return (
     <div className="mx-1 mb-2 rounded-xl border border-warning/30 bg-warning/5 px-3.5 py-3" role="dialog" aria-label="DSH 工具审批">
@@ -75,9 +84,9 @@ export function DshApprovalPanel({ discussionId, approval, toolInput, onResolved
               {submitting ? <SpinnerGap size={14} className="animate-spin" /> : <X size={14} />}
               拒绝
             </Button>
-            <Button variant="primary" size="sm" onClick={() => void decide("allowed-once")} disabled={submitting}>
+            <Button variant="primary" size="sm" onClick={() => void decide("allowed-session")} disabled={submitting}>
               {submitting ? <SpinnerGap size={14} className="animate-spin" /> : <Check size={14} />}
-              仅本次允许
+              本次会话允许
             </Button>
           </div>
         </div>

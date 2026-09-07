@@ -62,6 +62,15 @@ export function nextReconnectDelay(attempt: number): number {
   return Math.min(30_000, 250 * 2 ** Math.min(safeAttempt, 7));
 }
 
+/** A stale reader must never deliver frames into the current Discussion state. */
+export function isDiscussionSseConnectionActive(
+  disposed: boolean,
+  connectionGeneration: number,
+  activeGeneration: number,
+): boolean {
+  return !disposed && connectionGeneration === activeGeneration;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -176,10 +185,6 @@ export function useDiscussionEvents(
   const cursorRef = useRef(0);
 
   useEffect(() => {
-    stateRef.current = state;
-  }, [state]);
-
-  useEffect(() => {
     onFrameRef.current = onFrame;
   }, [onFrame]);
 
@@ -188,6 +193,7 @@ export function useDiscussionEvents(
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let activeController: AbortController | null = null;
     let attempt = 0;
+    let activeGeneration = 0;
 
     if (!discussionId) {
       cursorRef.current = 0;
@@ -200,8 +206,8 @@ export function useDiscussionEvents(
     stateRef.current = emptyHookState();
     setState(stateRef.current);
 
-    const update = (next: DiscussionEventsHookState) => {
-      if (disposed) return;
+    const update = (next: DiscussionEventsHookState, generation: number) => {
+      if (!isDiscussionSseConnectionActive(disposed, generation, activeGeneration)) return;
       stateRef.current = next;
       cursorRef.current = next.cursor;
       setState(next);
@@ -217,35 +223,38 @@ export function useDiscussionEvents(
         connected: false,
         reconnecting: true,
         ...(message ? { streamError: message } : {}),
-      });
+      }, activeGeneration);
       reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
         void connect();
       }, delay);
     };
 
-    const consumeFrame = (frame: DiscussionSseFrame, controller: AbortController) => {
+    const consumeFrame = (frame: DiscussionSseFrame, controller: AbortController, generation: number) => {
+      if (!isDiscussionSseConnectionActive(disposed, generation, activeGeneration) || controller.signal.aborted) return;
       onFrameRef.current?.(frame);
       const next = applyDiscussionSseFrame(stateRef.current, frame);
-      update(next);
-      if (next.process.needsResync) {
+      update(next, generation);
+      if (next.process.needsResync && isDiscussionSseConnectionActive(disposed, generation, activeGeneration)) {
         controller.abort();
       }
     };
 
     const connect = async () => {
       if (disposed) return;
+      const generation = ++activeGeneration;
+      const isCurrent = () => isDiscussionSseConnectionActive(disposed, generation, activeGeneration);
       // A prior gap must not make the reducer ignore the replay that follows.
       if (stateRef.current.process.needsResync) {
         update({
           ...stateRef.current,
           process: { ...stateRef.current.process, needsResync: false, streamError: undefined },
-        });
+        }, generation);
       }
 
       const controller = new AbortController();
       activeController = controller;
-      update({ ...stateRef.current, reconnecting: attempt > 0, streamError: undefined });
+      update({ ...stateRef.current, reconnecting: attempt > 0, streamError: undefined }, generation);
 
       try {
         const response = await fetch(
@@ -254,29 +263,32 @@ export function useDiscussionEvents(
         );
         if (!response.ok) throw new Error(`实时事件流请求失败（${response.status}）`);
         if (!response.body) throw new Error("实时事件流没有响应体");
+        if (!isCurrent()) return;
 
-        update({ ...stateRef.current, connected: true, reconnecting: false, streamError: undefined });
+        update({ ...stateRef.current, connected: true, reconnecting: false, streamError: undefined }, generation);
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
-        while (!disposed && !controller.signal.aborted) {
+        while (isCurrent() && !controller.signal.aborted) {
           const result = await reader.read();
           if (result.done) break;
           buffer += decoder.decode(result.value, { stream: true });
           const frames = buffer.split(/\r?\n\r?\n/);
           buffer = frames.pop() ?? "";
           for (const raw of frames) {
+            if (!isCurrent() || controller.signal.aborted) break;
             const frame = parseDiscussionSseFrame(raw);
-            if (frame) consumeFrame(frame, controller);
+            if (frame) consumeFrame(frame, controller, generation);
           }
         }
-        if (!disposed && !controller.signal.aborted) {
+        if (!isCurrent()) return;
+        if (!controller.signal.aborted) {
           scheduleReconnect();
-        } else if (!disposed && controller.signal.aborted && stateRef.current.process.needsResync) {
+        } else if (stateRef.current.process.needsResync) {
           scheduleReconnect(stateRef.current.streamError ?? "实时事件流需要重新同步");
         }
       } catch (error) {
-        if (disposed || (isAbortError(error) && !stateRef.current.process.needsResync)) return;
+        if (!isCurrent() || (isAbortError(error) && !stateRef.current.process.needsResync)) return;
         scheduleReconnect(errorMessage(error));
       } finally {
         if (activeController === controller) activeController = null;

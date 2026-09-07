@@ -20,7 +20,12 @@ import { getSetting } from "@/lib/settings/store";
 import { decrypt } from "@/lib/settings/encryption";
 import { DshCredentialInvalidError } from "@/lib/dsh/errors";
 import type { RuntimeProfile } from "./types";
-import { getDshApprovalToken, getDshApprovalUrl } from "./internal-endpoints";
+import {
+  getDshApprovalToken,
+  getDshApprovalUrl,
+  getDshInternalSearchUrl,
+  getDshInternalToken,
+} from "./internal-endpoints";
 
 let manager: DshRuntimeManager | null = null;
 const discussionManagerGlobal = globalThis as typeof globalThis & {
@@ -48,10 +53,14 @@ export function getDiscussionSessionManager(): DiscussionSessionManager {
 export async function getDiscussionSessionConfig(options: {
   approvalUrl?: string;
   approvalToken?: string;
+  internalSearchUrl?: string;
+  internalSearchToken?: string;
 } = {}) {
   const config = await getDshTurnConfig();
   const approvalUrl = options.approvalUrl ?? getDshApprovalUrl();
   const approvalToken = options.approvalToken ?? getDshApprovalToken();
+  const internalSearchUrl = options.internalSearchUrl ?? getDshInternalSearchUrl();
+  const internalSearchToken = options.internalSearchToken ?? getDshInternalToken();
   return {
     profile: config.profile,
     processOptions: {
@@ -64,6 +73,8 @@ export async function getDiscussionSessionConfig(options: {
       apiKey: config.apiKey,
       approvalUrl,
       approvalToken,
+      internalSearchUrl,
+      internalSearchToken,
     },
   };
 }

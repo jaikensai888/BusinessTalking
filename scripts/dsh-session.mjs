@@ -8,6 +8,7 @@
  * sessions until shutdown or a fatal protocol/runtime error.
  */
 import readline from "node:readline";
+import { pathToFileURL } from "node:url";
 import { DeepSeekHarness } from "@deepseek-ai/dsh-sdk-client";
 
 const env = (key) => process.env[key];
@@ -141,20 +142,21 @@ function parseCommand(line) {
   return command;
 }
 
-function buildChildRuntimeEnv() {
+export function buildChildRuntimeEnv(source = process.env) {
   const allowed = [
     "PATH", "Path", "HOME", "USERPROFILE", "TEMP", "TMP", "TMPDIR",
     "SystemRoot", "SYSTEMROOT", "COMSPEC", "PATHEXT", "WINDIR", "LANG",
     "LC_ALL", "NODE_PATH", "PWD", "INIT_CWD", "APPDATA", "LOCALAPPDATA",
   ];
   const out = {};
-  for (const key of allowed) if (process.env[key]) out[key] = process.env[key];
+  for (const key of allowed) if (source[key]) out[key] = source[key];
   for (const key of [
     "BT_DSH_CWD", "BT_DSH_HOME", "BT_DSH_BIN", "BT_DSH_PROVIDER", "BT_DSH_MODEL",
     "BT_DSH_PATCHES", "DSH_PERMISSION_MODE", "BT_DSH_API_KEY", "BT_DSH_LLM_API_KEY",
     "DEEPSEEK_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
     "BT_DSH_APPROVAL_URL", "BT_DSH_APPROVAL_TOKEN",
-  ]) if (process.env[key]) out[key] = process.env[key];
+    "BT_INTERNAL_SEARCH_URL", "BT_INTERNAL_TOKEN",
+  ]) if (source[key]) out[key] = source[key];
   return out;
 }
 
@@ -273,10 +275,13 @@ async function main() {
   }
 }
 
-try {
-  await main();
-} catch (error) {
-  const failure = classify(error, "start");
-  emit({ type: "fatal", code: failure.code, stage: failure.stage, error: asMessage(failure) });
-  process.exitCode = 1;
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isMain) {
+  try {
+    await main();
+  } catch (error) {
+    const failure = classify(error, "start");
+    emit({ type: "fatal", code: failure.code, stage: failure.stage, error: asMessage(failure) });
+    process.exitCode = 1;
+  }
 }

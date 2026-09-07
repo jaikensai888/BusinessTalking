@@ -5,7 +5,7 @@
  *  - 监听 `agent/created`，对每个 payload.agent 同步执行 mountAgentScope(agent)：
  *      * 只读取并验证 agent.id 对应的 manifest（不接受调用方传入的 sessionId）；
  *      * 在 agent.ctx（scoped context）上注册 SkillProvider、systemPrompt section、
- *        只读工具 read_skill_reference（web_search 仅在 manifest 明确允许时注册，P0 默认关闭）；
+ *        只读工具 read_skill_reference/web_search（web_search 仅在 manifest 明确允许时注册，执行前走会话审批）；
  *      * agent.ctx.tools.restrict({ allow: P0 只读 list }) + agent.ctx.tools.guard(...) 双保险。
  *  - 所有 tool 执行从 exec.agent?.id 取当前 Agent id，再加载同一 manifest；缺 exec.agent、
  *    id 与 manifest 不一致或 manifest 不存在时直接拒绝（fail-closed）。
@@ -253,10 +253,6 @@ function mountAgentScope(agent) {
   if (manifest.sessionId !== sessionId) {
     throw dshError("DSH_MANIFEST_INVALID", "manifest sessionId 与 Agent 不一致");
   }
-  if (manifest.toolPolicy?.webSearch === true) {
-    throw dshError("DSH_MANIFEST_INVALID", "P0 未开启 web_search：内部搜索 endpoint 尚未提供");
-  }
-
   // Cordis service properties are only available from an injected context.
   // `agent.ctx` itself is a context proxy, not a service bag; reading
   // `agent.ctx.skills` directly fails with "without inject" in the real DSH.
@@ -383,6 +379,18 @@ function mountAgentScope(agent) {
       if (!endpoint || !token) return "unavailable";
       return await requestApprovalOverLocalHttp({ manifest: current, request, endpoint, token });
     });
+
+    if (manifest.toolPolicy?.webSearch) {
+      scoped.on("tools/pre-execute", (execution, next) => {
+        if (execution?.name === P0_WEB_SEARCH) {
+          return Promise.resolve({
+            kind: "ask",
+            reason: "web_search 将访问互联网查证实时信息，需要你的本次会话批准。",
+          });
+        }
+        return next();
+      });
+    }
 
     // scoped 只读工具（read_skill_reference 必注册；web_search 仅 manifest 允许时）
     scoped.tools.register(buildReadSkillRefTool());

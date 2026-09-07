@@ -20,8 +20,9 @@ export async function POST(
   } catch {
     return Response.json({ error: "invalid_json" }, { status: 400 });
   }
-  if (!isRecord(body) || Object.keys(body).length !== 1 || (body.outcome !== "allowed-once" && body.outcome !== "rejected")) {
-    return Response.json({ error: "outcome must be allowed-once or rejected" }, { status: 400 });
+  if (!isRecord(body) || Object.keys(body).length !== 1 ||
+    (body.outcome !== "allowed-once" && body.outcome !== "allowed-session" && body.outcome !== "rejected")) {
+    return Response.json({ error: "outcome must be allowed-once, allowed-session, or rejected" }, { status: 400 });
   }
   const outcome = body.outcome as UserApprovalOutcome;
   const status = getDiscussionApprovalBridge().decide(id, approvalId, outcome);

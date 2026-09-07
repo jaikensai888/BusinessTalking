@@ -262,7 +262,8 @@ export async function buildPersonaManifest(
       referenceIndex: snapshot.referenceIndex,
     },
     allowedSkills: allowlist,
-    toolPolicy: { webSearch: false, sideEffects: false },
+    // web_search 是人格 Session 的只读能力；真正执行前由 DSH approval/request 询问用户。
+    toolPolicy: { webSearch: true, sideEffects: false },
     permissions,
   };
 }
@@ -308,6 +309,7 @@ export function buildPersonaPromptPacket(persona: { name: string; systemPrompt?:
     `# 当前讨论状态\n${safeJson(state)}`,
     `# 你的身份\n你是 ${persona.name}。请以你的立场与风格直接回答下面的问题。`,
     identity,
+    `# 工具权限\n你可以使用只读的 web_search 查证实时事实、产品/竞品、规格和市场数据；该工具受当前讨论的审批策略保护，实际调用前会按会话策略处理。需要具体事实时先查证，不要凭空编造。`,
     `# 用户的问题\n${question}`,
   ].filter(Boolean).join("\n\n");
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyDiscussionSseFrame,
   emptyHookState,
+  isDiscussionSseConnectionActive,
   nextReconnectDelay,
   parseDiscussionSseFrame,
 } from "@/hooks/use-discussion-events";
@@ -32,5 +33,11 @@ describe("useDiscussionEvents protocol helpers", () => {
     expect(nextReconnectDelay(1)).toBe(500);
     expect(nextReconnectDelay(8)).toBe(30_000);
     expect(nextReconnectDelay(99)).toBe(30_000);
+  });
+
+  it("ignores frames from disposed or superseded SSE connections", () => {
+    expect(isDiscussionSseConnectionActive(true, 1, 1)).toBe(false);
+    expect(isDiscussionSseConnectionActive(false, 1, 2)).toBe(false);
+    expect(isDiscussionSseConnectionActive(false, 2, 2)).toBe(true);
   });
 });

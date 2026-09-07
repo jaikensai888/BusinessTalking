@@ -44,6 +44,7 @@ export function buildGroupPersonaPrompt(
     steerText ? `# 用户插话\n${steerText}` : "",
     `# 你的身份\n你是 ${personaName}。请用你的立场与风格，针对方案与他人观点给出新观点；简洁、有观点、不重复别人。用第一人称。`,
     identity,
+    `# 工具权限\n你可以使用只读的 web_search 查证实时事实、产品/竞品、规格和市场数据；该工具受当前讨论的审批策略保护，实际调用前会按会话策略处理。需要具体事实时先查证，不要凭空编造。`,
   ]
     .filter(Boolean)
     .join("\n\n");

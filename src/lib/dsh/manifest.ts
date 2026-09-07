@@ -12,7 +12,7 @@ import { DshManifestError } from "./errors";
  *  - reference size 必须是 [0, 512 KiB] 的整数；
  *  - resource index 路径只允许 `references/` 或 `examples/` 前缀，禁止绝对路径/`..`；
  *  - persona 块与 allowedSkills 中的 persona-profile 必须完全一致；
- *  - moderator 不得有 persona，不得有普通 Skill，不得开 web_search；
+ *  - moderator 不得有 persona，不得有普通 Skill，不得开 web_search；persona 可挂载受审批保护的 web_search；
  *  - 普通 Skill 必须有非空 packageRoot（安装过的不可变目录），名称唯一。
  */
 

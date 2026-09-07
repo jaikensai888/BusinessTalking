@@ -92,6 +92,15 @@ describe("DSH approval routes", () => {
     expect(conflict.status).toBe(409);
   });
 
+  it("accepts a session-scoped approval from the browser", async () => {
+    const response = await approvalPost(jsonRequest("http://localhost/api/v1/discussions/d1/approvals/a1", {
+      outcome: "allowed-session",
+    }), { params: Promise.resolve({ id: "d1", approvalId: "a1" }) });
+
+    expect(response.status).toBe(200);
+    expect(mocks.decide).toHaveBeenCalledWith("d1", "a1", "allowed-session");
+  });
+
   it("updates only read-only Discussion permissions and blocks active/pending turns", async () => {
     const active = await permissionPatch(jsonRequest("http://localhost/api/v1/discussions/d1/permissions", {
       approvalPolicy: "never",

@@ -34,6 +34,7 @@ interface MountedAgent {
   guard: ((execution: { name: string; agent?: { id: string } }) => string | undefined) | undefined;
   sections: { name: string; order: number; text: () => string }[];
   approvalHandler: ((request: unknown, next: () => Promise<unknown>) => Promise<unknown>) | undefined;
+  preExecuteHandler: ((execution: { name: string }, next: () => Promise<unknown>) => Promise<unknown>) | undefined;
 }
 
 async function captureMount(sessionId: string) {
@@ -46,6 +47,7 @@ async function captureMount(sessionId: string) {
     guard: undefined,
     sections: [],
     approvalHandler: undefined,
+    preExecuteHandler: undefined,
   };
 
   const plugin = (await import(`${pluginUrl}?case=${sessionId}`)) as {
@@ -55,6 +57,7 @@ async function captureMount(sessionId: string) {
   const fakeAgentScope = {
     on: (event: string, handler: MountedAgent["approvalHandler"]) => {
       if (event === "approval/request") mounted.approvalHandler = handler;
+      if (event === "tools/pre-execute") mounted.preExecuteHandler = handler as MountedAgent["preExecuteHandler"];
       return () => undefined;
     },
     skills: {
@@ -219,7 +222,7 @@ describe("business-talking DSH plugin (P0 scoped mount)", () => {
     }
   });
 
-  it("fails closed when web_search is enabled without a P0 internal endpoint", async () => {
+  it("registers web_search but asks for session approval before execution", async () => {
     const sessionId = `bt-plugin-web-${crypto.randomUUID()}`;
     const { manifestPath, snapshotRoot } = writeFixtureManifest({
       sessionId,
@@ -227,7 +230,34 @@ describe("business-talking DSH plugin (P0 scoped mount)", () => {
     });
     process.env.BT_DSH_SESSION_ID = sessionId;
     try {
-      await expect(captureMount(sessionId)).rejects.toThrow(/web_search/);
+      const { mounted } = await captureMount(sessionId) as { mounted: MountedAgent };
+      expect([...mounted.registeredTools.keys()].sort()).toEqual(["read_skill_reference", "web_search"]);
+      expect(mounted.preExecuteHandler).toBeTypeOf("function");
+      const next = vi.fn(async () => ({ kind: "allow" }));
+      await expect(mounted.preExecuteHandler?.({ name: "web_search" }, next)).resolves.toEqual({
+        kind: "ask",
+        reason: expect.stringContaining("web_search"),
+      });
+      expect(next).not.toHaveBeenCalled();
+      await expect(mounted.preExecuteHandler?.({ name: "skill" }, next)).resolves.toEqual({ kind: "allow" });
+      expect(next).toHaveBeenCalledOnce();
+    } finally {
+      fs.rmSync(manifestPath, { force: true });
+      fs.rmSync(snapshotRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps web_search disabled for moderator manifests at the runtime boundary", async () => {
+    const sessionId = `bt-plugin-moderator-web-${crypto.randomUUID()}`;
+    const { manifestPath, snapshotRoot } = writeFixtureManifest({
+      sessionId,
+      kind: "moderator",
+      persona: null,
+      toolPolicy: { webSearch: true, sideEffects: false },
+    });
+    process.env.BT_DSH_SESSION_ID = sessionId;
+    try {
+      await expect(captureMount(sessionId)).rejects.toThrow(/moderator.*web_search|web_search.*moderator/);
     } finally {
       fs.rmSync(manifestPath, { force: true });
       fs.rmSync(snapshotRoot, { recursive: true, force: true });

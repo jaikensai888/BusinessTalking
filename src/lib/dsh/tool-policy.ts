@@ -4,7 +4,8 @@
  * 单一事实来源：模型可见 schema 与实际执行 guard 必须使用同一份 allowlist。
  *  - 保留的 DSH Skill tool：`skill`（DSH 自带，BusinessTalking 只提供 scoped provider）。
  *  - BusinessTalking 只读工具：`read_skill_reference`。
- *  - `web_search`：仅当 manifest.toolPolicy.webSearch 明确允许时注册；P0 默认关闭。
+ *  - `web_search`：仅当 persona manifest.toolPolicy.webSearch 明确允许时注册；默认仍关闭，
+ *    实际执行前由当前讨论的 approvalPolicy 询问或拒绝。
  *
  * 任何 manifest 数据或 prompt 修改都不能把本 allowlist 之外的名称放行。
  */

@@ -124,6 +124,23 @@ describe("DiscussionSessionManager", () => {
     await active;
   });
 
+  it("recreates an idle process when its internal endpoint configuration changes", async () => {
+    const sessionManager = manager();
+    await sessionManager.run(input());
+
+    await sessionManager.run(input({
+      sessionId: "after-config-change",
+      processOptions: {
+        ...PROCESS_OPTIONS,
+        internalSearchUrl: "http://127.0.0.1:3001/api/internal/dsh/web-search",
+        internalSearchToken: "new-token",
+      },
+    }));
+
+    expect(createProcess).toHaveBeenCalledTimes(2);
+    expect(processes[0].close).toHaveBeenCalledTimes(1);
+  });
+
   it("propagates notification callback failures without manufacturing success", async () => {
     const sessionManager = manager();
     const callback = vi.fn(async () => { throw new DshProtocolError("ledger failed"); });

@@ -50,5 +50,7 @@ export function buildDshChildEnv(options: DshSessionProcessOptions): NodeJS.Proc
   }
   if (options.approvalUrl) env.BT_DSH_APPROVAL_URL = options.approvalUrl;
   if (options.approvalToken) env.BT_DSH_APPROVAL_TOKEN = options.approvalToken;
+  if (options.internalSearchUrl) env.BT_INTERNAL_SEARCH_URL = options.internalSearchUrl;
+  if (options.internalSearchToken) env.BT_INTERNAL_TOKEN = options.internalSearchToken;
   return env;
 }

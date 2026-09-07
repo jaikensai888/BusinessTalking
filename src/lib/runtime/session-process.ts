@@ -34,6 +34,8 @@ export interface DshSessionProcessOptions {
   apiKey?: string;
   approvalUrl?: string;
   approvalToken?: string;
+  internalSearchUrl?: string;
+  internalSearchToken?: string;
   onNotification?: (requestId: string, notification: DshNotification) => Promise<void> | void;
   onFatal?: (error: DshError) => void;
   /** Test-only fixture override; production always uses scripts/dsh-session.mjs. */

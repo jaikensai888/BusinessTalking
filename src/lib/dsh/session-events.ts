@@ -223,6 +223,43 @@ function projectAssistantContent(data: Record<string, unknown>): Record<string, 
   return { content: projected };
 }
 
+function nestedToolResult(data: Record<string, unknown>): Record<string, unknown> | null {
+  const message = isRecord(data.message) ? data.message : data;
+  const content = Array.isArray(message.content) ? message.content : [];
+  const result = content.find((block) => isRecord(block) && (block.type === "tool-result" || block.type === "tool_result"));
+  return isRecord(result) ? result : null;
+}
+
+function toolResultText(value: unknown, depth = 0): string | undefined {
+  if (depth > 4) return undefined;
+  if (typeof value === "string") return safeString(value);
+  if (!Array.isArray(value)) return undefined;
+  const textParts = value.flatMap((block) => {
+    if (typeof block === "string") return [block];
+    if (!isRecord(block)) return [];
+    const nested = toolResultText(block.text ?? block.content, depth + 1);
+    return nested ? [nested] : [];
+  });
+  return textParts.length > 0 ? safeString(textParts.join("\n")) : undefined;
+}
+
+function projectToolResult(data: Record<string, unknown>): Record<string, unknown> {
+  const message = isRecord(data.message) ? data.message : null;
+  const source = message && isRecord(message.source) ? message.source : null;
+  const nested = nestedToolResult(data);
+  const callId = safeString(data.callId ?? data.id ?? source?.callId ?? nested?.toolCallId);
+  const explicitStatus = safeString(data.status ?? data.outcome);
+  const failed = data.isError === true || nested?.isError === true || ["error", "failed", "failure"].includes(explicitStatus?.toLowerCase() ?? "");
+  const outputValue = data.output ?? data.result ?? nested?.content;
+  const errorValue = data.error ?? (failed ? toolResultText(nested?.content) : undefined);
+  return {
+    ...(callId === undefined ? {} : { callId }),
+    ...(explicitStatus === undefined && !failed ? {} : { status: failed ? "error" : explicitStatus }),
+    ...(outputValue === undefined || failed ? {} : { output: safeValue(sanitizeData(outputValue)) }),
+    ...(errorValue === undefined ? {} : { error: typeof errorValue === "string" ? safeString(errorValue) : safeValue(sanitizeData(errorValue)) }),
+  };
+}
+
 /**
  * Keep only browser-safe fields for the live timeline. Persistence retains the
  * separately sanitized event payload; this projection is intentionally narrower.
@@ -243,18 +280,10 @@ export function projectClientEvent(mapped: MappedSessionEvent): Record<string, u
     }
     case "tool/result":
     case "tool/end":
-      return {
-        ...(safeString(data.callId ?? data.id) === undefined
-          ? {}
-          : { callId: safeString(data.callId ?? data.id) }),
-        ...(safeString(data.status ?? data.outcome) === undefined
-          ? {}
-          : { status: safeString(data.status ?? data.outcome) }),
-        ...(data.output === undefined && data.result === undefined
-          ? {}
-          : { output: safeValue(sanitizeData(data.output ?? data.result)) }),
-        ...(safeString(data.error) === undefined ? {} : { error: safeString(data.error) }),
-      };
+      // Tool results emitted by DSH nest callId/content under message. Read
+      // only the fields projected by projectToolResult; the source payload is
+      // already sanitized at extract/persistence boundaries.
+      return projectToolResult(mapped.data);
     case "assistant/chunk":
     case "assistant/message":
       return projectAssistantContent(data);
