@@ -16,7 +16,7 @@ describe("dsh event projection — pure transforms", () => {
       },
     };
     const m = extractEvent(n);
-    expect(m).toEqual({ sessionId: "bt-s", seq: 12, eventType: "assistant/message", data: { content: [{ type: "text", text: "hi" }] } });
+    expect(m).toEqual({ sessionId: "bt-s", seq: 12, eventType: "assistant/message", eventTimeMs: null, data: { content: [{ type: "text", text: "hi" }] } });
     expect(extractEvent({ method: "session.status", params: { sessionId: "bt-s", status: "running" } })).toBeNull();
     expect(extractEvent({ method: "session.event", params: {} })).toBeNull();
   });

@@ -24,6 +24,7 @@ export interface MappedEvent {
   sessionId: string;
   seq: number;
   eventType: string;
+  eventTimeMs: number | null;
   data: Record<string, unknown>;
 }
 
@@ -70,6 +71,7 @@ export function extractEvent(notification: DshNotification): MappedEvent | null 
     sessionId: params.sessionId,
     seq: event.seq,
     eventType: event.type,
+    eventTimeMs: typeof event.time === "number" && Number.isFinite(event.time) ? event.time : null,
     data: (event.data ?? {}) as Record<string, unknown>,
   };
 }
