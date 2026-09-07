@@ -94,7 +94,11 @@ async function markDshTurnFailed(
     },
   }).catch(() => undefined);
 
-  if (input.participantId && details.code !== "DSH_SESSION_BUSY") {
+  if (
+    input.participantId
+    && details.code !== "DSH_SESSION_BUSY"
+    && details.code !== "DISCUSSION_ARCHIVED"
+  ) {
     await prisma.discussionParticipant.update({
       where: { id: input.participantId },
       data: { status: "failed", lastError: details.message },

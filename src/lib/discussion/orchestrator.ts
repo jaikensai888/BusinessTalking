@@ -235,7 +235,7 @@ export async function runDiscussion(discussionId: string): Promise<void> {
           const participant = currentParticipantId
             ? { id: currentParticipantId }
             : await prisma.discussionParticipant.findFirst({ where: { discussionId, personaId } });
-          if (participant) {
+          if (participant && errorCode !== "DISCUSSION_ARCHIVED") {
             await prisma.discussionTurn.updateMany({
               where: {
                 discussionId,
@@ -286,10 +286,12 @@ export async function runDiscussion(discussionId: string): Promise<void> {
       } catch (e) {
         // 保留旧 discussionState；设置 moderatorStatus=failed 和 Discussion failed，不写伪造数据。
         // 原始错误向上传播，由外层 catch 统一标记。
-        await prisma.discussion.update({
-          where: { id: discussionId },
-          data: { status: "failed", moderatorStatus: "failed" },
-        });
+        if (!(e instanceof DshError) || e.code !== "DISCUSSION_ARCHIVED") {
+          await prisma.discussion.update({
+            where: { id: discussionId },
+            data: { status: "failed", moderatorStatus: "failed" },
+          });
+        }
         publish(discussionId, { type: "change" });
         throw e;
       }
@@ -308,7 +310,7 @@ export async function runDiscussion(discussionId: string): Promise<void> {
   } catch {
     // 外层 catch：绝不把异常后的流程继续到 status done；保持非成功状态
     const current = await prisma.discussion.findUnique({ where: { id: discussionId } });
-    if (current && current.status !== "failed") {
+    if (current && current.status !== "failed" && current.status !== "archived") {
       await prisma.discussion.update({
         where: { id: discussionId },
         data: { status: "failed" },

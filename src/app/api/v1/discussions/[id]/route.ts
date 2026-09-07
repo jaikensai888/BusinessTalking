@@ -1,6 +1,6 @@
 import { err, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
-import { archiveDiscussion } from "@/lib/discussion/archive";
+import { deleteDiscussion } from "@/lib/discussion/archive";
 import { getDiscussionEventCursor } from "@/lib/discussion/event-ledger";
 import { parseDiscussionState } from "@/lib/discussion/state";
 
@@ -78,9 +78,16 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/v1/discussions/
   });
 }
 
-/** DELETE /api/v1/discussions/:id — 逻辑归档：写 status=archived + archivedAt + purgeAt */
+/** DELETE /api/v1/discussions/:id — 不可恢复硬删除：终止 DSH Session 并清理持久化数据 */
 export async function DELETE(_req: Request, ctx: RouteContext<"/api/v1/discussions/[id]">) {
   const { id } = await ctx.params;
-  await archiveDiscussion(id);
-  return ok({ archived: true });
+  try {
+    await deleteDiscussion(id);
+  } catch (e) {
+    if (e instanceof Error && e.message === "讨论不存在") {
+      return err(40401, e.message, 404);
+    }
+    throw e;
+  }
+  return ok({ deleted: true });
 }

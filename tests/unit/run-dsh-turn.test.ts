@@ -41,7 +41,7 @@ vi.mock("@/lib/discussion/event-ledger", () => ({
 vi.mock("@/lib/discussion/broadcast", () => ({ publish: vi.fn() }));
 
 import { runDiscussionDshTurn } from "@/lib/discussion/run-dsh-turn";
-import { DshProtocolError, DshSessionBusyError } from "@/lib/dsh/errors";
+import { DiscussionArchivedError, DshProtocolError, DshSessionBusyError } from "@/lib/dsh/errors";
 
 const PROFILE = { provider: "openai", model: "deepseek-chat", profileHash: "profile-1" };
 const PROCESS_OPTIONS = {
@@ -192,6 +192,18 @@ describe("runDiscussionDshTurn", () => {
     const result = await runDiscussionDshTurn(input());
 
     expect(result).toMatchObject({ status: "failed", errorCode: "DSH_SESSION_BUSY" });
+    expect(mocks.participantUpdate).not.toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "failed" }),
+    }));
+  });
+
+  it("does not overwrite an archived participant when Session close aborts the turn", async () => {
+    const manager = { run: vi.fn().mockRejectedValue(new DiscussionArchivedError()) };
+    mocks.getDiscussionSessionManager.mockReturnValue(manager);
+
+    const result = await runDiscussionDshTurn(input());
+
+    expect(result).toMatchObject({ status: "failed", errorCode: "DISCUSSION_ARCHIVED" });
     expect(mocks.participantUpdate).not.toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: "failed" }),
     }));

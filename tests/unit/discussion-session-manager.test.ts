@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { DshProtocolError, DshRuntimeProfileConflictError, DshSessionBusyError } from "@/lib/dsh/errors";
+import {
+  DiscussionArchivedError,
+  DshProtocolError,
+  DshRuntimeProfileConflictError,
+  DshSessionBusyError,
+} from "@/lib/dsh/errors";
 import { DiscussionSessionManager, type DiscussionSessionRunInput, type SessionProcessFactory } from "@/lib/runtime/discussion-session-manager";
 import type { DshSessionProcessOptions } from "@/lib/runtime/session-process";
 import type { RuntimeProfile } from "@/lib/runtime/types";
@@ -174,5 +179,24 @@ describe("DiscussionSessionManager", () => {
     expect(processes[1].close).not.toHaveBeenCalled();
     await sessionManager.run(input({ discussionId: "d2", sessionId: "s3" }));
     expect(createProcess).toHaveBeenCalledTimes(2);
+  });
+
+  it("maps an in-flight run interrupted by Discussion archive to DISCUSSION_ARCHIVED", async () => {
+    let rejectRun!: (error: Error) => void;
+    const sessionManager = manager();
+    createProcess.mockImplementationOnce((options: DshSessionProcessOptions) => {
+      const fake = createFakeProcess(options);
+      fake.run.mockImplementation(() => new Promise((_resolve, reject) => {
+        rejectRun = reject;
+      }));
+      return fake;
+    });
+
+    const active = sessionManager.run(input());
+    await vi.waitFor(() => expect(rejectRun).toBeTypeOf("function"));
+    await sessionManager.closeDiscussion("d1", { reason: "archive" });
+    rejectRun(new DshProtocolError("runner closed"));
+
+    await expect(active).rejects.toBeInstanceOf(DiscussionArchivedError);
   });
 });

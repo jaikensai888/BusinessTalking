@@ -248,7 +248,7 @@ model Discussion {
   discussionState       Json? // DiscussionState（结构化状态，事实来源）
   stateVersion          Int       @default(0)
   moderatorSessionId    String?
-  moderatorStatus       String? // idle | running | completed | failed
+  moderatorStatus       String? // idle | running | completed | failed | archived
   moderatorLastEventSeq Int       @default(0)
   archivedAt            DateTime?
   purgeAt               DateTime?

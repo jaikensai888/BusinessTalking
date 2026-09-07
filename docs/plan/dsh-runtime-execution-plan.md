@@ -24,7 +24,7 @@
 10. 多人讨论第一阶段使用 BusinessTalking 控制轮次和顺序，按 participant 顺序串行执行；后续才评估 DSH 自主编排和 subagent。
 11. 单个 Persona 的模型回合失败时，标记该 Persona failed，继续执行同轮其他 Persona；Runtime 进程/协议失败时，整个讨论失败，不伪造成功消息。
 12. 重试只能针对失败 Persona，并且使用该回合保存的 TurnInputSnapshot；不能用重试时的新状态重写原回合输入。
-13. Discussion 的删除语义改为逻辑归档。归档后的 Discussion 可恢复；DSH JSONL、manifest、snapshot 和 raw events 在 purgeAt 之后才物理清理。
+13. Discussion 的 DELETE 语义为不可恢复硬删除：先以 archived 状态阻断新 turn 并终止 DSH Session，再清理 DSH JSONL、projection、manifest 和未被引用的 snapshot，最后级联删除 DB 记录；历史逻辑归档仍由 purgeAt 清理。
 14. 所有来自 Skill reference、web search 和外部网页的内容都是不可信资料，不能升级为 system prompt 或覆盖 BusinessTalking/DSH 安全规则。
 15. 不扩大本次范围：现有 Recipe 固定 schema runner、Conversation 模型和 Persona 独立聊天接口在本方案中不迁移；目标是 Discussion API 的 1v1 与多人讨论。
 
@@ -445,7 +445,7 @@ close(): Promise<void>
 - 一个 manager 生命周期内只允许一个 profileHash。新 profileHash 与当前活动 Runtime 不同，且有活动 Session 时抛出 runtime_profile_conflict。
 - 没有活动 run 时可以关闭旧 Runtime 并启动新配置；生产部署的设置保存流程应显式触发 drain/restart。
 - per-session 使用 mutex；同一 Session 有并发请求时返回 DshSessionBusyError，不隐式排队两个用户回合。
-- SDK 没有 per-session close。归档/Participant 删除只删除 BusinessTalking 逻辑关系和过期 snapshot，不调用 Runtime close；整个 Runtime 只在 Worker shutdown 或 manager drain 时 close。
+- SDK 没有 per-session close。Discussion 删除先关闭对应的独立 runner，再直接清理项目内 DSH 持久化目录；共享 snapshot 只有在没有其它 Discussion/manifest 引用时才删除。整个 Runtime 仍在 Worker shutdown 或 manager drain 时 close。
 - run 的 onNotification 只持久化当前 Session tree，按 sessionId 和 seq 去重。subagent 事件第一阶段记录但不启用 subagent roster。
 - 检查 RunResult 的 turn/end reason。如果 DSH 返回模型回合 error，抛出 DshTurnError；如果 transport、initialize、JSON-RPC 或事件校验失败，抛出 DshRuntimeError。
 - 不捕获错误后调用 legacy AI SDK。唯一允许的 legacy 路径是调用方在开发配置中明确指定 runtimeMode=legacy-ai-sdk。
@@ -737,18 +737,17 @@ HTTP 映射：
 
 错误消息可以展示 provider/model 和修复建议，但绝不能包含 apiKey、完整请求 header 或内部凭据路径。
 
-### 10.2 归档和清理
+### 10.2 删除和清理
 
-修改 DELETE /api/v1/discussions/:id：
+修改 DELETE /api/v1/discussions/:id 为不可恢复硬删除：
 
-1. 将 status 改为 archived；
-2. 写 archivedAt；
-3. 根据配置计算 purgeAt；
-4. 不 cascade delete messages、participants、AgentEvent、DSH session files 或 snapshots；
-5. 归档 Discussion 不再接受新的 turn，但可以由 restore route 恢复；
-6. 新增 cleanup service，在启动时和固定间隔查找 purgeAt <= now；
-7. cleanup 先停止仍在运行的相关工作，再删除 DSH session JSONL、manifest、snapshot、events and artifacts，最后物理删除 DB 记录；
-8. cleanup 每一步可重试，不能删除未到 purgeAt 的数据。
+1. 查询 Discussion 及其 participant/moderator Session 元数据；
+2. 将 status 临时改为 archived，写 archivedAt 和当前 purgeAt，阻断并发 turn；
+3. 终止对应的 Discussion runner，并取消该 Discussion 的 pending approval；
+4. 删除 DSH 实际 JSONL Session 目录、projection cache 和 manifest；
+5. 仅当没有其它 Discussion participant 或 manifest 引用时，删除 persona snapshot；
+6. 上述物理清理全部成功后，删除 Discussion，依赖关系上的消息、事件、turn、artifact 和 participants 级联删除；
+7. 任一物理清理失败时不得删除 DB 行，保留 archived + purgeAt=now 以便后续重试；历史逻辑归档仍可由 purge service 清理。
 
 ## 11. 旧代码迁移边界
 
@@ -789,7 +788,7 @@ test:watch: vitest
 - [tests/integration/dsh-runtime.test.ts](../../tests/integration/dsh-runtime.test.ts)：DeepSeekHarness fake client、通知收集、session mutex、close、无 fallback。
 - [tests/integration/discussion-1v1.test.ts](../../tests/integration/discussion-1v1.test.ts)：首次 snapshot、resume、reference lazy loading、用户 steer、DSH failure。
 - [tests/integration/discussion-nvn.test.ts](../../tests/integration/discussion-nvn.test.ts)：串行轮次、每个 Persona 独立 Session、单 Persona failure continue、Moderator 原子 state commit、failed retry snapshot。
-- [tests/integration/archive-purge.test.ts](../../tests/integration/archive-purge.test.ts)：DELETE 只归档，TTL 前可恢复，TTL 后才物理清理。
+- [tests/integration/archive-purge.test.ts](../../tests/integration/archive-purge.test.ts)：DELETE 终止 runner 并硬删除 runtime/DB 数据；历史 archived 数据的 purge 可重试且不误删共享 snapshot。
 - [tests/e2e/dsh-config-smoke.test.ts](../../tests/e2e/dsh-config-smoke.test.ts)：使用本地 DSH build 和 sdk profile dump-config，确认 plugin active、filesystem Skill provider disabled、写工具 disabled、目标 route active。
 
 执行模型必须完成以下验证：
@@ -813,7 +812,7 @@ pnpm build
 7. 关闭 DSH child，确认 API 返回 DSH 503 错误，没有 AI SDK fallback 和伪造 assistant 消息；
 8. 让一个多人 Persona 回合失败，确认其他 Persona 继续，失败回合可用原 inputSnapshot retry；
 9. 让 Moderator 输出非法 JSON，确认 stateVersion 不变且不提交半成品 summary；
-10. DELETE Discussion，确认只写 archivedAt/purgeAt，不立即删除任何 session/snapshot/event。
+10. DELETE Discussion，确认 runner 先终止，实际 session/projection/manifest 被删除，未被引用的 snapshot 被删除，最后 DB 行及级联数据消失；清理失败时 DB 行保留并可重试。
 
 ## 13. 推荐执行顺序
 
@@ -846,7 +845,7 @@ pnpm build
 - raw AgentEvent 和用户可见 DiscussionMessage 分离且可去重；
 - 单 Persona 回合失败可继续，Runtime/协议失败不可降级；
 - failed Persona retry 使用原始 TurnInputSnapshot；
-- 归档可恢复，TTL 前不物理删除；
+- DELETE Discussion 会终止 runner 并物理删除其 Session/manifest；共享 snapshot 经过引用检查后再删除；
 - DSH 进程关闭、Skill 不允许、manifest 损坏、路由不支持时都能得到明确错误；
 - lint、test、prisma validate、migration deploy、build 全部通过。
 

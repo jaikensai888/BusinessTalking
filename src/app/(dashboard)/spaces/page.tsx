@@ -23,7 +23,9 @@ export default function SpacesPage() {
   };
 
   const deleteOne = async (type: "discussion" | "run", id: string) => {
-    if (!window.confirm(type === "discussion" ? "确定归档这个会话吗？将移出列表，可恢复。" : "确定删除这个会话吗？删除后不可恢复。")) return;
+    if (!window.confirm(type === "discussion"
+      ? "确定永久删除这个讨论吗？将终止 DSH Session，并删除消息、事件和运行数据，无法恢复。"
+      : "确定删除这个会话吗？删除后不可恢复。")) return;
     setDeleting(true);
     setError(null);
     try {
@@ -40,7 +42,7 @@ export default function SpacesPage() {
 
   const deleteMany = async () => {
     if (selected.size === 0) return;
-    if (!window.confirm(`确定删除选中的 ${selected.size} 个会话吗？讨论将归档（可恢复），分析运行将永久删除。`)) return;
+    if (!window.confirm(`确定永久删除选中的 ${selected.size} 个会话吗？讨论和分析运行都会被永久删除，无法恢复。`)) return;
     setDeleting(true);
     setError(null);
     const failures: string[] = [];

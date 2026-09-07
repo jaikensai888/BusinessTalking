@@ -51,7 +51,7 @@ vi.mock("@/lib/discussion/broadcast", () => ({
 }));
 
 import { runDiscussion } from "@/lib/discussion/orchestrator";
-import { DshManifestError, DshProtocolError } from "@/lib/dsh/errors";
+import { DiscussionArchivedError, DshManifestError, DshProtocolError } from "@/lib/dsh/errors";
 
 const discussion = {
   id: "d1",
@@ -119,5 +119,22 @@ describe("runDiscussion failure state", () => {
         data: expect.objectContaining({ status: "failed", moderatorStatus: "failed" }),
       })
     );
+  });
+
+  it("preserves archived Discussion state when archive interrupts a group turn", async () => {
+    mocks.discussionFindUnique
+      .mockReset()
+      .mockResolvedValueOnce(discussion)
+      .mockResolvedValue({ ...discussion, status: "archived", archivedAt: new Date() });
+    mocks.runDiscussionDshTurn.mockRejectedValue(new DiscussionArchivedError());
+
+    await runDiscussion("d1");
+
+    expect(mocks.participantUpdate).not.toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "failed" }),
+    }));
+    expect(mocks.discussionUpdate).not.toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "failed" }),
+    }));
   });
 });

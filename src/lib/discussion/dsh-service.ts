@@ -418,13 +418,17 @@ export async function runOneOnOneTurn(
       sender: persona.name,
     });
     if (result.status === "failed") {
-      if (result.errorCode !== "DSH_SESSION_BUSY") {
+      if (result.errorCode !== "DSH_SESSION_BUSY" && result.errorCode !== "DISCUSSION_ARCHIVED") {
         await prisma.discussionParticipant.update({
           where: { id: participant.id },
           data: { status: "failed", lastError: (result.error ?? "DSH 回合失败").slice(0, 300) },
         }).catch(() => undefined);
       }
-      if (isOneOnOne && result.errorCode !== "DSH_SESSION_BUSY") {
+      if (
+        isOneOnOne
+        && result.errorCode !== "DSH_SESSION_BUSY"
+        && result.errorCode !== "DISCUSSION_ARCHIVED"
+      ) {
         await prisma.discussion.update({ where: { id: discussionId }, data: { status: "failed" } }).catch(() => undefined);
       }
       publish(discussionId, { type: "change" });
@@ -454,10 +458,14 @@ export async function runOneOnOneTurn(
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e));
     const dshErr = err instanceof DshError ? err : undefined;
-    if (isOneOnOne && dshErr?.code !== "DSH_SESSION_BUSY") {
+    if (
+      isOneOnOne
+      && dshErr?.code !== "DSH_SESSION_BUSY"
+      && dshErr?.code !== "DISCUSSION_ARCHIVED"
+    ) {
       await prisma.discussion.update({ where: { id: discussionId }, data: { status: "failed" } }).catch(() => undefined);
     }
-    if (dshErr?.code !== "DSH_SESSION_BUSY") {
+    if (dshErr?.code !== "DSH_SESSION_BUSY" && dshErr?.code !== "DISCUSSION_ARCHIVED") {
       await prisma.discussionParticipant.update({
         where: { id: participant.id },
         data: { status: "failed", lastError: (dshErr?.message ?? err.message).slice(0, 300) },

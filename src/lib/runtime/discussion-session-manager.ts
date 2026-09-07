@@ -1,4 +1,5 @@
 import {
+  DiscussionArchivedError,
   DshError,
   DshProtocolError,
   DshRuntimeProfileConflictError,
@@ -21,6 +22,7 @@ export interface DiscussionSessionRunInput {
 
 export type SessionProcessLike = Pick<DshSessionProcess, "run" | "close">;
 export type SessionProcessFactory = (options: DshSessionProcessOptions) => SessionProcessLike;
+export type DiscussionSessionCloseReason = "archive" | "delete" | "shutdown";
 
 interface DiscussionRecord {
   discussionId: string;
@@ -30,6 +32,7 @@ interface DiscussionRecord {
   activeSessions: Set<string>;
   callbacks: Map<string, (notification: DshNotification) => Promise<void> | void>;
   fatalError: DshError | null;
+  closeReason: DiscussionSessionCloseReason | null;
 }
 
 function protocolFailure(message: string): never {
@@ -73,7 +76,21 @@ export class DiscussionSessionManager {
     record.activeSessions.add(input.sessionId);
     record.callbacks.set(input.sessionId, input.onNotification);
     try {
-      const result = await record.process.run({ sessionId: input.sessionId, prompt: input.prompt });
+      let result: { sessionId: string; finalResponse: string };
+      try {
+        result = await record.process.run({ sessionId: input.sessionId, prompt: input.prompt });
+      } catch (error) {
+        // Closing a live runner as part of Discussion lifecycle termination is expected
+        // lifecycle cancellation, not a protocol/runtime failure. Preserve a
+        // stable error code so upper layers do not overwrite archived state.
+        if (record.closeReason === "archive" || record.closeReason === "delete") {
+          throw new DiscussionArchivedError();
+        }
+        throw error;
+      }
+      if (record.closeReason === "archive" || record.closeReason === "delete") {
+        throw new DiscussionArchivedError();
+      }
       if (result.sessionId !== input.sessionId) {
         throw new DshProtocolError(`DSH runner 返回 session 不匹配：${result.sessionId}`);
       }
@@ -95,10 +112,14 @@ export class DiscussionSessionManager {
     return sessionId ? record.activeSessions.has(sessionId) : record.activeSessions.size > 0;
   }
 
-  async closeDiscussion(discussionId: string): Promise<void> {
+  async closeDiscussion(
+    discussionId: string,
+    options: { reason?: DiscussionSessionCloseReason } = {},
+  ): Promise<void> {
     const record = this.records.get(discussionId);
     getDiscussionApprovalBridge().cancelDiscussion(discussionId, "unavailable");
     if (!record) return;
+    record.closeReason = options.reason ?? "shutdown";
     this.records.delete(discussionId);
     record.callbacks.clear();
     record.activeSessions.clear();
@@ -169,6 +190,7 @@ export class DiscussionSessionManager {
       activeSessions: new Set(),
       callbacks: new Map(),
       fatalError: null,
+      closeReason: null,
     };
     holder.record = created;
     this.records.set(input.discussionId, created);
