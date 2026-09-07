@@ -77,7 +77,7 @@ model Persona {
   name            String
   description     String?
   systemPrompt    String
-  skillPath       String?         // 关联的人物 skill（SKILL.md）路径，运行时按需加载完整人设
+  skillPath       String? // 关联的人物 skill（SKILL.md）路径，运行时按需加载完整人设
   perspectiveType PerspectiveType @default(custom)
   avatarType      String          @default("auto") // builtin | auto
   avatarValue     String?
@@ -143,7 +143,7 @@ model Run {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  recipe    Recipe?   @relation(fields: [recipeId], references: [id], onDelete: SetNull)
+  recipe    Recipe?    @relation(fields: [recipeId], references: [id], onDelete: SetNull)
   steps     RunStep[]
   feedbacks Feedback[]
 
@@ -208,7 +208,7 @@ model Conversation {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  persona  Persona  @relation(fields: [personaId], references: [id], onDelete: Cascade)
+  persona  Persona   @relation(fields: [personaId], references: [id], onDelete: Cascade)
   messages Message[]
 
   @@index([personaId])
@@ -229,56 +229,59 @@ model Message {
 
 // ---------- 多人讨论室 ----------
 model Discussion {
-  id         String   @id @default(cuid())
-  brief      String
-  rounds     Int      @default(5)
-  personaIds          Json      // 参与人格 id 列表
-  status              String    @default("pending") // pending | running | ready | done | failed | archived
-  summaryBox          String?   // 共享纪要（跨人格的浓缩要点）
-  attachmentName      String?   // 引用的文件（上传资料）文件名
-  attachmentCharCount Int?      // 引用的文件提取字符数
-  attachmentTruncated Boolean?  // 引用的文件是否被截取
-  shortId             String?   @unique // 便于引用/排查的短编号（如 RW3K9Q）
+  id                  String   @id @default(cuid())
+  brief               String
+  rounds              Int      @default(5)
+  personaIds          Json // 参与人格 id 列表
+  status              String   @default("pending") // pending | running | ready | done | failed | archived
+  summaryBox          String? // 共享纪要（跨人格的浓缩要点）
+  attachmentName      String? // 引用的文件（上传资料）文件名
+  attachmentCharCount Int? // 引用的文件提取字符数
+  attachmentTruncated Boolean? // 引用的文件是否被截取
+  shortId             String?  @unique // 便于引用/排查的短编号（如 RW3K9Q）
 
   // ---- DSH Runtime 运行时字段（新 DSH 路径使用；旧字段保留兼容） ----
-  runtimeMode          String    @default("dsh") // dsh | legacy-ai-sdk
-  runtimeProfile       Json?     // { provider, model, baseUrl?, profileHash }
-  discussionState      Json?     // DiscussionState（结构化状态，事实来源）
-  stateVersion         Int       @default(0)
-  moderatorSessionId   String?
-  moderatorStatus      String?   // idle | running | completed | failed
-  moderatorLastEventSeq Int      @default(0)
-  archivedAt           DateTime?
-  purgeAt              DateTime?
+  runtimeMode           String    @default("dsh") // dsh | legacy-ai-sdk
+  permissionMode        String    @default("read-only") // 当前 P0 只允许 read-only
+  approvalPolicy        String    @default("ask") // ask | never
+  runtimeProfile        Json? // { provider, model, baseUrl?, profileHash }
+  discussionState       Json? // DiscussionState（结构化状态，事实来源）
+  stateVersion          Int       @default(0)
+  moderatorSessionId    String?
+  moderatorStatus       String? // idle | running | completed | failed
+  moderatorLastEventSeq Int       @default(0)
+  archivedAt            DateTime?
+  purgeAt               DateTime?
 
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  messages            DiscussionMessage[]
-  artifacts           DiscussionArtifact[]
-  participants        DiscussionParticipant[]
-  skills              DiscussionSkill[]
-  agentEvents         AgentEvent[]
-  turns               DiscussionTurn[]
+  messages     DiscussionMessage[]
+  artifacts    DiscussionArtifact[]
+  participants DiscussionParticipant[]
+  skills       DiscussionSkill[]
+  agentEvents  AgentEvent[]
+  turns        DiscussionTurn[]
+  eventCursor  DiscussionEventCursor?
 
   @@index([status])
   @@index([archivedAt])
 }
 
 model DiscussionMessage {
-  id           String   @id @default(cuid())
-  discussionId String
-  personaId    String?  // null = 用户插话 / 综合建议
-  sender       String   // 显示名：人格名 / 你 / 综合建议
-  role         String   // persona | user | summary | skill
-  turn         Int
-  content      String
+  id            String   @id @default(cuid())
+  discussionId  String
+  personaId     String? // null = 用户插话 / 综合建议
+  sender        String // 显示名：人格名 / 你 / 综合建议
+  role          String // persona | user | summary | skill
+  turn          Int
+  content       String
   // ---- DSH 投影字段 ----
   participantId String? // 对应 DiscussionParticipant
   sessionId     String? // 对应 DSH Session
   attempt       Int      @default(1)
-  sourceEventId String? // 对应 AgentEvent 的最终 assistant/message 事件 id
-  createdAt    DateTime @default(now())
+  sourceEventId String?  @unique // 对应 AgentEvent 的最终 assistant/message 事件 id
+  createdAt     DateTime @default(now())
 
   discussion Discussion @relation(fields: [discussionId], references: [id], onDelete: Cascade)
 
@@ -292,9 +295,9 @@ model DiscussionArtifact {
   discussionId String
   title        String
   type         String   @default("report") // report | note
-  filePath     String?  // 相对 cwd 的 md 磁盘路径（data/reports/…）
-  summary      String?  // 一句摘要
-  content      String   // 产物全文（md 源）
+  filePath     String? // 相对 cwd 的 md 磁盘路径（data/reports/…）
+  summary      String? // 一句摘要
+  content      String // 产物全文（md 源）
   createdAt    DateTime @default(now())
 
   discussion Discussion @relation(fields: [discussionId], references: [id], onDelete: Cascade)
@@ -308,15 +311,15 @@ model DiscussionArtifact {
 model SkillRevision {
   id           String   @id @default(cuid())
   skillId      String
-  name         String   // kebab-case，作为 DSH skill name
-  version      String   // semver 或 0.0.0+<hash12>
-  contentHash  String   // 完整 SKILL.md 的 sha256
+  name         String // kebab-case，作为 DSH skill name
+  version      String // semver 或 0.0.0+<hash12>
+  contentHash  String // 完整 SKILL.md 的 sha256
   description  String?
-  instructions String   // 完整正文，不再截断
-  packageRoot  String?  // data/skill-library/<name>/<version>
+  instructions String // 完整正文，不再截断
+  packageRoot  String? // data/skill-library/<name>/<version>
   source       String   @default("builtin") // builtin | npx | manual
   sourceRef    String?
-  manifest     Json?    // frontmatter、资源索引与安装元数据
+  manifest     Json? // frontmatter、资源索引与安装元数据
   installedAt  DateTime @default(now())
   createdAt    DateTime @default(now())
 
@@ -358,7 +361,7 @@ model DiscussionSkill {
   skillRevisionId String
   createdAt       DateTime @default(now())
 
-  discussion    Discussion     @relation(fields: [discussionId], references: [id], onDelete: Cascade)
+  discussion    Discussion    @relation(fields: [discussionId], references: [id], onDelete: Cascade)
   skillRevision SkillRevision @relation(fields: [skillRevisionId], references: [id], onDelete: Restrict)
 
   @@unique([discussionId, skillRevisionId])
@@ -373,14 +376,25 @@ model AgentEvent {
   sessionId     String
   seq           Int
   eventType     String
-  payload       Json?   // 清理凭据/header/绝对路径后保存
+  discussionSeq Int?
+  eventTimeMs   Float?
+  payload       Json? // 清理凭据/header/绝对路径后保存
   createdAt     DateTime @default(now())
 
   discussion Discussion @relation(fields: [discussionId], references: [id], onDelete: Cascade)
 
   @@unique([sessionId, seq])
   @@index([discussionId, createdAt])
+  @@index([discussionId, discussionSeq])
   @@index([sessionId])
+}
+
+// Discussion 内跨 Session 的可重放事件游标；nextSeq 指向下一个可分配序号。
+model DiscussionEventCursor {
+  discussionId String @id
+  nextSeq      Int    @default(1)
+
+  discussion Discussion @relation(fields: [discussionId], references: [id], onDelete: Cascade)
 }
 
 // 一次讨论回合（Persona 或 Moderator），携带可重试输入快照
@@ -389,10 +403,10 @@ model DiscussionTurn {
   discussionId    String
   participantId   String? // Persona turn 有值，Moderator turn 为空
   sessionId       String
-  kind            String    // persona | moderator
+  kind            String // persona | moderator
   round           Int
   attempt         Int       @default(1)
-  inputSnapshot   Json      // 完整 prompt packet、stateVersion、引用消息 ID
+  inputSnapshot   Json // 完整 prompt packet、stateVersion、引用消息 ID
   status          String    @default("running") // running | completed | failed
   outputMessageId String?
   errorCode       String?
