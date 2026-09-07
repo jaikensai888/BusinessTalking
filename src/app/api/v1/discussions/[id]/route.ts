@@ -63,6 +63,7 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/v1/discussions/
         turn: m.turn,
         content: m.content,
         attempt: m.attempt,
+        sessionId: m.sessionId,
         createdAt: m.createdAt,
       })),
     artifacts: d.artifacts.map((a) => ({

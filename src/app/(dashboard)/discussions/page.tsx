@@ -5,14 +5,19 @@ import { useSearchParams } from "next/navigation";
 import { ArrowUp, ChatCircleDots, FilePdf, FileText, PaperPlaneTilt, Plus, SpinnerGap, UsersThree, X } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import { getOneOnOneFailure, hasNewPersonaReply, isOneOnOneReplyPending } from "@/lib/discussion/live-state";
+import { useDiscussionEvents } from "@/hooks/use-discussion-events";
+import type { DshToolView } from "@/lib/discussion/dsh-turn-projection";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
 import { EmptyState } from "@/components/ui/empty-state";
 import { CopyId } from "@/components/ui/copy-id";
 import { Markdown } from "@/components/ui/markdown";
+import { DshApprovalPanel } from "@/components/discussions/dsh-approval-panel";
+import { DshTurnProcess } from "@/components/discussions/dsh-turn-process";
+import { DiscussionPermissionControl } from "@/components/discussions/discussion-permission-control";
 
 interface PersonaOption { id: string; name: string; perspectiveType: string }
-interface Msg { id: string; sender: string; role: string; turn: number; content: string; createdAt: string; streaming?: boolean }
+interface Msg { id: string; sender: string; role: string; turn: number; content: string; createdAt: string; sessionId?: string | null; streaming?: boolean }
 interface Artifact { id: string; title: string; type: string; filePath?: string | null; summary?: string | null; content: string; createdAt: string }
 interface ParticipantState { id: string; personaId: string; status: string; lastError?: string | null }
 interface Discussion {
@@ -20,6 +25,9 @@ interface Discussion {
   brief: string;
   rounds: number;
   status: string;
+  permissionMode?: string;
+  approvalPolicy?: string;
+  eventCursor?: number;
   personas: PersonaOption[];
   participants?: ParticipantState[];
   messages: Msg[];
@@ -64,7 +72,6 @@ function DiscussionsContent() {
   const [summarizing, setSummarizing] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const replyPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const streamAbortRef = useRef<AbortController | null>(null);
   const steerStreamingRef = useRef(false); // 1v1 / 追问 流式期间为 true，避免 /stream 的 change 覆盖乐观气泡
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const steerRef = useRef<HTMLInputElement | null>(null);
@@ -177,8 +184,6 @@ function DiscussionsContent() {
       clearInterval(replyPollRef.current);
       replyPollRef.current = null;
     }
-    streamAbortRef.current?.abort();
-    streamAbortRef.current = null;
   }
 
   const load = async (id: string) => {
@@ -261,69 +266,23 @@ function DiscussionsContent() {
     }, 2000);
   }
 
-  // 用 SSE 实时订阅讨论进展：每次后端 publish 就收到 {type:"change"}，回源拉取最新状态；
-  // SSE 断开（非我们主动关闭）时自动退回轮询兜底。
-  function connectLive(id: string) {
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
+  const eventStream = useDiscussionEvents(viewId ?? current?.id ?? null, (frame) => {
+    if (frame.event === "change" && !steerStreamingRef.current) {
+      const id = viewId ?? current?.id;
+      if (id) void load(id);
     }
-    streamAbortRef.current?.abort();
-    const ctrl = new AbortController();
-    streamAbortRef.current = ctrl;
-    void (async () => {
-      try {
-        const res = await fetch(`/api/v1/discussions/${id}/stream`, { signal: ctrl.signal, cache: "no-store" });
-        if (!res.ok || !res.body) throw new Error("stream unavailable");
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          let idx: number;
-          while ((idx = buffer.indexOf("\n\n")) >= 0) {
-            const frame = buffer.slice(0, idx);
-            buffer = buffer.slice(idx + 2);
-            const line = frame.split("\n").find((l) => l.startsWith("data:"));
-            if (!line) continue;
-            const payload = line.slice(5).trim();
-            if (!payload) continue;
-            let evt: { type?: string };
-            try {
-              evt = JSON.parse(payload);
-            } catch {
-              continue;
-            }
-            if (evt.type === "change") {
-              // 1v1/追问流式期间：不覆盖乐观流式气泡，交由 /steer 流结束后的 load 同步
-              if (!steerStreamingRef.current) void load(id);
-            }
-          }
-        }
-      } catch {
-        /* 连接被主动 abort 或异常 */
-      } finally {
-        // 非我们主动关闭且仍是当前这条连接：退回轮询兜底
-        if (!ctrl.signal.aborted && streamAbortRef.current === ctrl) {
-          streamAbortRef.current = null;
-          startPolling(id);
-        }
-      }
-    })();
-  }
+  });
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [current?.messages.length]);
+  }, [current?.messages.length, eventStream.process.turns.length, eventStream.process.cursor]);
 
   // 从工作台会话空间卡片进入：加载已有讨论线程，并实时订阅进展
   useEffect(() => {
     if (viewId) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setCurrent({ id: viewId, brief: "", rounds: 5, status: "pending", personas: [], messages: [] });
-      connectLive(viewId);
+      void load(viewId);
     }
     return () => stopLive();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -348,28 +307,11 @@ function DiscussionsContent() {
         content: question,
         createdAt: new Date().toISOString(),
       };
-      const aiMsg: Msg = {
-        id: `tmp-ai-${Date.now()}`,
-        sender: followUp.name,
-        role: "persona",
-        turn: 0,
-        content: "",
-        createdAt: new Date().toISOString(),
-        streaming: true,
-      };
-      setCurrent((prev) => (prev ? { ...prev, messages: [...prev.messages, optimistic, aiMsg] } : prev));
+      setCurrent((prev) => (prev ? { ...prev, messages: [...prev.messages, optimistic] } : prev));
       setSending(true);
       setError(null);
       steerStreamingRef.current = true;
-      // 用「最后一条」定位流式中的助手气泡（引用会被替换，不能靠对象相等）
-      const patchLast = (fn: (m: Msg) => Msg) =>
-        setCurrent((prev) => {
-          if (!prev || prev.messages.length === 0) return prev;
-          const messages = [...prev.messages];
-          messages[messages.length - 1] = fn(messages[messages.length - 1]);
-          return { ...prev, messages };
-        });
-      const removeLast = () =>
+      const removeOptimistic = () =>
         setCurrent((prev) =>
           prev ? { ...prev, messages: prev.messages.slice(0, Math.max(0, prev.messages.length - 1)) } : prev
         );
@@ -389,13 +331,12 @@ function DiscussionsContent() {
             /* 忽略 */
           }
           setError(msgText);
-          setCurrent((prev) => (prev ? { ...prev, messages: prev.messages.slice(0, Math.max(0, prev.messages.length - 2)) } : prev));
+          removeOptimistic();
           return;
         }
         const reader = res.body!.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
-        let full = "";
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -414,14 +355,9 @@ function DiscussionsContent() {
             } catch {
               continue;
             }
-            if (evt.type === "delta") {
-              full += evt.text ?? "";
-              patchLast((m) => ({ ...m, content: full }));
-            } else if (evt.type === "done") {
-              patchLast((m) => ({ ...m, content: full, streaming: false }));
-            } else if (evt.type === "error") {
+            if (evt.type === "error") {
               setError(evt.message ?? "追问失败");
-              removeLast();
+              removeOptimistic();
             }
           }
         }
@@ -430,7 +366,7 @@ function DiscussionsContent() {
         void load(discussionId);
       } catch {
         setError("追问失败");
-        removeLast();
+        void load(discussionId);
       } finally {
         steerStreamingRef.current = false;
         startReplyPoll(discussionId, previousReplyCount); // 追问也等到本轮回复出现
@@ -442,7 +378,7 @@ function DiscussionsContent() {
     setSending(true);
     setError(null);
     if (isOne) {
-      // 1 对 1：直接消费 /steer 的 SSE 流，逐字渲染（同"讨论后追问"）
+      // 1 对 1：消费 /steer 的完成流；可见过程与最终回复统一来自 DSH 事件账本。
       const optimistic: Msg = {
         id: `tmp-${Date.now()}`,
         sender: "我",
@@ -451,24 +387,8 @@ function DiscussionsContent() {
         content: question,
         createdAt: new Date().toISOString(),
       };
-      const aiMsg: Msg = {
-        id: `tmp-ai-${Date.now()}`,
-        sender: current.personas?.[0]?.name ?? "专家",
-        role: "persona",
-        turn: 0,
-        content: "",
-        createdAt: new Date().toISOString(),
-        streaming: true,
-      };
-      setCurrent((prev) => (prev ? { ...prev, messages: [...prev.messages, optimistic, aiMsg] } : prev));
-      const patchLast = (fn: (m: Msg) => Msg) =>
-        setCurrent((prev) => {
-          if (!prev || prev.messages.length === 0) return prev;
-          const messages = [...prev.messages];
-          messages[messages.length - 1] = fn(messages[messages.length - 1]);
-          return { ...prev, messages };
-        });
-      const removeLast = () =>
+      setCurrent((prev) => (prev ? { ...prev, messages: [...prev.messages, optimistic] } : prev));
+      const removeOptimistic = () =>
         setCurrent((prev) =>
           prev ? { ...prev, messages: prev.messages.slice(0, Math.max(0, prev.messages.length - 1)) } : prev
         );
@@ -489,15 +409,12 @@ function DiscussionsContent() {
             /* 忽略 */
           }
           setError(msgText);
-          setCurrent((prev) =>
-            prev ? { ...prev, messages: prev.messages.slice(0, Math.max(0, prev.messages.length - 2)) } : prev
-          );
+          removeOptimistic();
           return;
         }
         const reader = res.body!.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
-        let full = "";
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -516,23 +433,18 @@ function DiscussionsContent() {
             } catch {
               continue;
             }
-            if (evt.type === "delta") {
-              full += evt.text ?? "";
-              patchLast((m) => ({ ...m, content: full }));
-            } else if (evt.type === "done") {
-              patchLast((m) => ({ ...m, content: full, streaming: false }));
-            } else if (evt.type === "error") {
+            if (evt.type === "error") {
               setError(evt.message ?? "发送失败");
-              removeLast();
+              removeOptimistic();
             }
           }
         }
       } catch {
-        // SSE/网络中断：不删乐观气泡，交给 finally 的 load() 回源同步（若后端已生成回复则显示）
+        // SSE/网络中断：保留用户问题，交给回源同步判断后端是否已生成回复。
         setError("发送中断，正在同步…");
       } finally {
         steerStreamingRef.current = false;
-        // 不在此处关“正在思考”：交给 startReplyPoll 轮询数据库，直到人格回复出现
+        void load(discussionId);
         startReplyPoll(discussionId, previousReplyCount);
       }
       return;
@@ -545,7 +457,7 @@ function DiscussionsContent() {
         body: JSON.stringify({ message: question }),
       });
       const d = await res.json();
-      if (d.code === 0) connectLive(discussionId);
+      if (d.code === 0) void load(discussionId);
       else setError(d.message ?? "插话失败");
     } finally {
       setSending(false);
@@ -607,14 +519,30 @@ function DiscussionsContent() {
     URL.revokeObjectURL(url);
   };
 
-  const running = current && (current.status === "running" || current.status === "pending");
-  const thinking = current?.status === "running";
+  const running = Boolean(current && (current.status === "running" || current.status === "pending"));
   const isOne = (current?.personas?.length ?? 0) === 1;
   // 讨论未在进行中时，才能向某个人格「追问」（避免被实时推送的 load 覆盖流式气泡）
   const canFollowUp = !!current && !running && (current.status === "done" || current.status === "failed");
   const personaNames = new Set((current?.personas ?? []).map((p) => p.name));
   // 隐藏"人格设定/参考资料"（role=skill）这类内部消息，不占用聊天气泡
   const visibleMessages = current?.messages.filter((m) => m.role !== "skill") ?? [];
+  const processTurns = eventStream.process.turns;
+  const pendingApproval = eventStream.process.pendingApprovals[0];
+  const approvalToolInput = pendingApproval?.callId
+    ? processTurns
+      .flatMap((turn) => turn.tools)
+      .find((tool: DshToolView) => tool.callId === pendingApproval.callId)?.input
+    : undefined;
+  const renderedTurnKeys = new Set<string>();
+
+  const processTurnForMessage = (message: Msg) => {
+    if (message.role === "user" || message.role === "summary") return undefined;
+    const bySession = message.sessionId
+      ? processTurns.filter((turn) => turn.sessionId === message.sessionId)
+      : processTurns;
+    return bySession.find((turn) => turn.turnNumber === message.turn && !renderedTurnKeys.has(turn.key))
+      ?? bySession.find((turn) => turn.hasFinalMessage && !renderedTurnKeys.has(turn.key));
+  };
 
   return (
     <div className="mx-auto max-w-[1500px] h-[calc(100vh-44px)] px-6">
@@ -762,11 +690,17 @@ function DiscussionsContent() {
                   <div className="mt-1 break-words text-[12px] leading-5">{error}</div>
                 </div>
               )}
+              {eventStream.streamError && (
+                <div role="status" className="mx-4 mt-3 flex items-center gap-2 rounded-xl border border-warning/20 bg-warning/5 px-4 py-2.5 text-[12px] text-ink-60">
+                  <SpinnerGap size={14} className="animate-spin text-warning" />
+                  {eventStream.streamError}
+                </div>
+              )}
               <div
                 ref={scrollRef}
                 className="flex-1 space-y-6 overflow-y-auto bg-parchment px-6 py-6"
               >
-                {visibleMessages.length === 0 ? (
+                {visibleMessages.length === 0 && processTurns.length === 0 ? (
                   <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
                     <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
                       <ChatCircleDots size={22} weight="duotone" />
@@ -787,12 +721,15 @@ function DiscussionsContent() {
                         </div>
                       );
                     }
+                    const processTurn = processTurnForMessage(m);
+                    if (processTurn) renderedTurnKeys.add(processTurn.key);
                     const isUser = m.role === "user";
                     const time = new Date(m.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
                     const prev = visibleMessages[idx - 1];
                     const newDay = !prev || dayLabel(prev.createdAt) !== dayLabel(m.createdAt);
                     return (
                       <Fragment key={m.id}>
+                        {processTurn && <DshTurnProcess turn={processTurn} />}
                         {newDay && (
                           <div className="flex items-center gap-3 py-2">
                             <div className="h-px flex-1 bg-hairline/70" />
@@ -830,20 +767,26 @@ function DiscussionsContent() {
                     );
                   })
                 )}
-                {!isOne && running && (
+                {processTurns.filter((turn) => !renderedTurnKeys.has(turn.key)).map((turn) => (
+                  <DshTurnProcess key={turn.key} turn={turn} />
+                ))}
+                {running && processTurns.length === 0 && (
                   <div className="flex items-center gap-2 py-1 text-[12px] text-ink-40">
-                    <PaperPlaneTilt size={14} className="animate-pulse" /> 讨论中…
-                  </div>
-                )}
-                {isOne && (thinking || sending) && (
-                  <div className="flex items-center gap-2 py-1 text-[12px] text-ink-40">
-                    <ChatCircleDots size={14} className="animate-pulse" /> {current.personas?.[0]?.name ?? "专家"} 正在思考…
+                    <PaperPlaneTilt size={14} className="animate-pulse" />
+                    {isOne ? "正在启动 DSH 会话…" : "讨论正在启动…"}
                   </div>
                 )}
               </div>
 
               {/* 底部输入条（独立一层）：圆角卡片，左右留白 */}
               <div className="bg-parchment px-4 pb-3.5 pt-2">
+                {pendingApproval && (
+                  <DshApprovalPanel
+                    discussionId={current.id}
+                    approval={pendingApproval}
+                    toolInput={approvalToolInput}
+                  />
+                )}
                 <div className="rounded-2xl border border-hairline bg-white shadow-[0_10px_30px_rgba(0,0,0,0.07)] transition-colors focus-within:border-primary/40 focus-within:ring-4 focus-within:ring-primary/10">
                   <div className="relative flex items-end gap-2 p-2">
                     {!isOne && mentionQuery !== null && mentionOptions.length > 0 && (
@@ -871,6 +814,7 @@ function DiscussionsContent() {
                     <input
                       ref={steerRef}
                       value={steer}
+                      disabled={Boolean(pendingApproval)}
                       onChange={handleSteerChange}
                       placeholder={
                         followUp
@@ -898,7 +842,7 @@ function DiscussionsContent() {
                     <button
                       type="button"
                       onClick={sendSteer}
-                      disabled={sending || !steer.trim()}
+                      disabled={sending || Boolean(pendingApproval) || !steer.trim()}
                       aria-label={isOne ? "发送" : "插话"}
                       title={isOne ? "发送" : "插话"}
                       className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-white shadow-[0_6px_16px_rgba(0,102,204,0.3)] transition-all duration-150 hover:bg-[#0071e3] active:scale-95 disabled:opacity-45 disabled:shadow-none"
@@ -906,8 +850,17 @@ function DiscussionsContent() {
                       {sending ? <SpinnerGap size={17} weight="bold" className="animate-spin" /> : <ArrowUp size={17} weight="bold" />}
                     </button>
                   </div>
-                  <div className="flex items-center justify-between border-t border-divider-soft px-3 py-1.5 text-[11px] text-ink-40">
-                    <span>Enter 发送 · Shift+Enter 换行</span>
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-t border-divider-soft px-3 py-1.5 text-[11px] text-ink-40">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span>Enter 发送 · Shift+Enter 换行</span>
+                      <DiscussionPermissionControl
+                        discussionId={current.id}
+                        permissionMode={current.permissionMode}
+                        approvalPolicy={current.approvalPolicy}
+                        busy={running || Boolean(pendingApproval)}
+                        onUpdated={(value) => setCurrent((prev) => (prev ? { ...prev, ...value } : prev))}
+                      />
+                    </div>
                     <span className="flex items-center gap-1.5">
                       <span className="h-1.5 w-1.5 rounded-full bg-success" /> 专家在线
                     </span>
@@ -945,7 +898,7 @@ function DiscussionsContent() {
                       {current.status === "done" && "已结束"}
                       {current.status === "failed" && "失败"}
                       {running && !isOne && "讨论中"}
-                      {isOne && (running ? "正在思考" : "一对一交流")}
+                      {isOne && (running ? "DSH 会话运行中" : "一对一交流")}
                       {!isOne && !running && `${current.rounds} 轮`}
                     </span>
                     <CopyId id={current.shortId} />

@@ -267,6 +267,9 @@ export function projectClientEvent(mapped: MappedSessionEvent): Record<string, u
     case "step/end":
       return {
         ...pickStrings(data, ["status", "outcome", "error"]),
+        ...(isRecord(data.reason) && typeof data.reason.kind === "string"
+          ? { reason: { kind: data.reason.kind } }
+          : {}),
         ...(data.durationMs === undefined ? {} : { durationMs: data.durationMs }),
       };
     default:
