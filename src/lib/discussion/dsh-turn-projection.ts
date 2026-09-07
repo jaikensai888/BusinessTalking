@@ -144,6 +144,18 @@ function errorText(data: Record<string, unknown>): string {
   return "DSH 回合未正常结束";
 }
 
+function isTurnProcessEvent(eventType: string): boolean {
+  return eventType === "step/start"
+    || eventType === "step/end"
+    || eventType === "assistant/chunk"
+    || eventType === "assistant/message"
+    || eventType === "tool/call"
+    || eventType === "tool/start"
+    || eventType === "tool/result"
+    || eventType === "tool/end"
+    || eventType === "turn/end";
+}
+
 function withTurn(state: DshProcessState, event: DiscussionLiveEvent, mutate: (turn: DshTurnView) => void): DshProcessState {
   const selected = turnForEvent(state, event);
   const turn = {
@@ -235,6 +247,14 @@ export function reduceDshEvent(state: DshProcessState, event: DiscussionLiveEven
       turn.turnNumber = turnNumber;
     }
     return { ...state, cursor: event.discussionSeq, turns: [...state.turns, turn] };
+  }
+
+  // Session coordination/history events (for example agent/inbox/spliced,
+  // user/message, and request/*) advance the durable cursor but do not create
+  // a visible process row. Otherwise the first inbox event creates an empty
+  // running turn before the real turn/start arrives.
+  if (!isTurnProcessEvent(event.eventType)) {
+    return { ...state, cursor: event.discussionSeq };
   }
 
   return withTurn(state, event, (turn) => {

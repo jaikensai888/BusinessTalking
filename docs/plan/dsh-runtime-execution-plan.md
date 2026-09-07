@@ -851,3 +851,15 @@ pnpm build
 - lint、test、prisma validate、migration deploy、build 全部通过。
 
 执行其他模型时，应要求它按本文件的 checkbox 顺序推进；每完成一个阶段，报告修改文件、测试命令、测试结果和未解决的 DSH API 差异，不得自行引入未在 Global Constraints 中批准的 fallback、自动 Skill 安装、并行多人调度或副作用工具。
+
+## 15. 2026-09-07 实现记录：Session、审批与过程可观测性
+
+在保留本方案 P0 范围边界的前提下，BusinessTalking 已完成以下 DSH Session 融合事实：
+
+- 每个 Discussion 使用一个长期 DSH child runner；参与者仍使用各自持久化的 `dshSessionId`，普通回合、1v1 追问和失败重试都不重新生成 Session。
+- DSH `session.event` 先经过 session/seq/Discussion 身份校验，再在事务中写入 `AgentEvent` 和 Discussion event cursor；事务提交后才广播，重复事件不会重复生成用户可见消息。
+- `/api/v1/discussions/:id/stream` 使用 durable `discussionSeq`、`Last-Event-ID`/`after` 和 subscribe-before-backlog 重放；浏览器只接收经过字段投影和敏感字段清理的事件，不默认返回 raw AgentEvent。
+- Discussion 级权限固定为 `read-only`，审批策略可选 `ask` 或 `never`。`approval/request` 通过本机随机 token 保护的内部桥接等待用户一次性 `allowed-once` 或 `rejected` 决策；超时、取消、Runner fatal 和进程关闭均 fail closed。
+- 页面从 snapshot 与 `after=0` 事件流分别重建消息和 DSH 过程，完成回合显示可折叠的工具调用、reasoning、状态与事件时间差；没有再用空 assistant 气泡或单一 `status=running` 作为回答事实来源。
+
+该记录不改变本方案中关于 provider/baseURL 路由重构、跨回合历史承接、Moderator 完整正文、steer 状态、真实 state CAS、完整 AgentEvent 落库、snapshot 全资料包冻结、archive/purge 调度以及前端实时通道的原始范围结论；web_search 和副作用工具仍需独立 capability/授权工作后才可开放。当前实现基于 `@deepseek-ai/dsh*` `0.1.2-rc.1` 依赖，真实网络模型 smoke 由 `RUN_DSH_E2E=1` 显式启用。

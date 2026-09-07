@@ -40,6 +40,16 @@ function approval(type: "approval-request" | "approval-decision", approvalId: st
 }
 
 describe("DSH turn projection", () => {
+  it("does not create an empty turn for non-process events before turn/start", () => {
+    let state = emptyProcessState();
+    state = reduceDshEvent(state, event("agent/inbox/spliced", 1, 100));
+    state = reduceDshEvent(state, event("turn/start", 2, 200, { turn: 1 }));
+    state = reduceDshEvent(state, event("turn/end", 3, 300, { reason: { kind: "completed" } }));
+
+    expect(state.turns).toHaveLength(1);
+    expect(state.turns[0]).toMatchObject({ key: "s1:2", status: "completed" });
+  });
+
   it("pairs tool result and keeps the completed turn duration", () => {
     let state = emptyProcessState();
     state = reduceDshEvent(state, event("turn/start", 1, 1000, { turn: 1 }));

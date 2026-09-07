@@ -96,7 +96,6 @@ vi.mock("@/lib/discussion/run-dsh-turn", () => ({
 }));
 
 import { runOneOnOneTurn } from "@/lib/discussion/dsh-service";
-import { DshProtocolError } from "@/lib/dsh/errors";
 
 const origCwd = process.cwd();
 

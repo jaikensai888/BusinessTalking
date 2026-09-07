@@ -47,6 +47,52 @@ function asMessage(error) {
   return String(error?.message ?? error).slice(0, 500);
 }
 
+function emptyReplyDiagnostic(result) {
+  const events = Array.isArray(result?.events) ? result.events : [];
+  const counts = new Map();
+  const assistantBlockTypes = new Set();
+  const failureCodes = new Set();
+  for (const event of events) {
+    if (!event || typeof event !== "object") continue;
+    const type = typeof event.type === "string" ? event.type : "unknown";
+    counts.set(type, (counts.get(type) ?? 0) + 1);
+    const data = event.data && typeof event.data === "object" ? event.data : null;
+    if (data && type === "llm/retry" && data.failure && typeof data.failure === "object") {
+      const failure = data.failure;
+      const code = typeof failure.code === "string" ? failure.code : "unknown";
+      const status = typeof failure.status === "number" ? `/${failure.status}` : "";
+      failureCodes.add(`${code}${status}`);
+    }
+    if (data && type === "turn/end" && data.reason && typeof data.reason === "object") {
+      const reason = data.reason;
+      const error = reason.error && typeof reason.error === "object" ? reason.error : null;
+      if (error) {
+        const code = typeof error.code === "string" ? error.code : "unknown";
+        const status = typeof error.status === "number" ? `/${error.status}` : "";
+        failureCodes.add(`turn:${code}${status}`);
+      }
+    }
+    if (type !== "assistant/message" || !event.data || typeof event.data !== "object") continue;
+    const message = event.data.message && typeof event.data.message === "object"
+      ? event.data.message
+      : event.data;
+    const content = message && typeof message === "object" && Array.isArray(message.content)
+      ? message.content
+      : [];
+    for (const block of content) {
+      if (block && typeof block === "object" && typeof block.type === "string") {
+        assistantBlockTypes.add(block.type);
+      }
+    }
+  }
+  const eventSummary = [...counts.entries()]
+    .map(([type, count]) => `${type}:${count}`)
+    .join(",") || "none";
+  const blockSummary = [...assistantBlockTypes].sort().join(",") || "none";
+  const failureSummary = [...failureCodes].sort().join(",") || "none";
+  return `DSH runner 返回空回复（events=${eventSummary}; assistantBlocks=${blockSummary}; failures=${failureSummary}）`;
+}
+
 function classify(error, stage) {
   if (error instanceof RunnerFailure) return error;
   if (typeof error?.code === "string" && STABLE_CODES.has(error.code)) {
@@ -166,7 +212,7 @@ async function main() {
         throw new RunnerFailure("DSH_PROTOCOL_FAILED", "run", `DSH runner session 不匹配：${result?.sessionId}`);
       }
       if (typeof result?.finalResponse !== "string" || !result.finalResponse.trim()) {
-        throw new RunnerFailure("DSH_TURN_FAILED", "run", "DSH runner 返回空回复");
+        throw new RunnerFailure("DSH_TURN_FAILED", "run", emptyReplyDiagnostic(result));
       }
       emit({
         type: "done",

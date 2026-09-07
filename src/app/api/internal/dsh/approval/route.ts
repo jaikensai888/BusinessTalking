@@ -1,4 +1,5 @@
 import { getDiscussionApprovalBridge, type ApprovalBridgeRequest } from "@/lib/discussion/approval-bridge";
+import { getDshApprovalToken } from "@/lib/runtime/internal-endpoints";
 
 export const dynamic = "force-dynamic";
 
@@ -46,7 +47,7 @@ function parseApprovalBody(value: unknown): ApprovalBridgeRequest {
 }
 
 export async function POST(request: Request) {
-  if (!tokenMatches(request.headers.get(TOKEN_HEADER), process.env.BT_DSH_APPROVAL_TOKEN)) {
+  if (!tokenMatches(request.headers.get(TOKEN_HEADER), getDshApprovalToken())) {
     return unauthorized();
   }
   let body: unknown;

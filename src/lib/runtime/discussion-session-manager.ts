@@ -126,23 +126,26 @@ export class DiscussionSessionManager {
     }
     if (record) return record;
 
-    let created!: DiscussionRecord;
+    const holder: { record?: DiscussionRecord } = {};
     const processOptions: DshSessionProcessOptions = {
       ...input.processOptions,
       onNotification: async (_requestId, notification) => {
         const sessionId = notification.params.sessionId;
         if (typeof sessionId !== "string") protocolFailure("DSH notification 缺少 sessionId");
-        const callback = created.callbacks.get(sessionId);
+        const record = holder.record;
+        if (!record) protocolFailure("DSH notification 在 Session registry 建立前到达");
+        const callback = record.callbacks.get(sessionId);
         if (!callback) protocolFailure(`DSH notification 没有活动 Session：${sessionId}`);
         await callback(notification);
       },
       onFatal: (error) => {
-        created.fatalError = error;
+        const record = holder.record;
+        if (record) record.fatalError = error;
         getDiscussionApprovalBridge().cancelDiscussion(input.discussionId, "unavailable");
       },
     };
     const process = this.createProcess(processOptions);
-    created = {
+    const created: DiscussionRecord = {
       discussionId: input.discussionId,
       profileHash: input.profile.profileHash,
       process,
@@ -150,6 +153,7 @@ export class DiscussionSessionManager {
       callbacks: new Map(),
       fatalError: null,
     };
+    holder.record = created;
     this.records.set(input.discussionId, created);
     return created;
   }

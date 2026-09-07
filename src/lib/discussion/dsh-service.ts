@@ -338,8 +338,7 @@ export interface RunTurnResult {
 export async function runOneOnOneTurn(
   discussionId: string,
   personaId: string,
-  question: string,
-  opts: { first?: boolean } = {}
+  question: string
 ): Promise<RunTurnResult> {
   const d = await prisma.discussion.findUnique({ where: { id: discussionId } });
   if (!d) throw new Error("讨论不存在");

@@ -7,6 +7,8 @@ import fs from "node:fs";
 import {
   KNOWN_FORBIDDEN_TOOLS,
 } from "@/lib/dsh/tool-policy";
+import { buildDshChildEnv } from "@/lib/runtime/dsh-child-env";
+import type { DshSessionProcessOptions } from "@/lib/runtime/session-process";
 
 /**
  * Resolve the `dsh` bin shipped with the same-version `@deepseek-ai/dsh` package
@@ -126,5 +128,23 @@ describe("dsh sdk profile config smoke", () => {
     for (const required of ["skill", "agent-loop", "system-prompt", "session-projection", "tools", "llm-pi-ai"]) {
       expect(active, `required component must stay active: ${required}`).toContain(required);
     }
+  });
+
+  it("keeps session identity and prompt out of the child environment", () => {
+    const options: DshSessionProcessOptions = {
+      cwd: projectRoot,
+      dshBin: "",
+      dshHome: path.join(projectRoot, "data", "dsh-home"),
+      patches: [],
+      provider: "deepseek-official",
+      model: "smoke-model",
+      apiKey: "test-secret-only-in-memory",
+    };
+    const env = buildDshChildEnv(options);
+    expect(env.BT_DSH_PROVIDER).toBe("deepseek-official");
+    expect(env.BT_DSH_MODEL).toBe("smoke-model");
+    expect(env.BT_DSH_API_KEY).toBe("test-secret-only-in-memory");
+    expect(env).not.toHaveProperty("BT_DSH_SESSION_ID");
+    expect(env).not.toHaveProperty("BT_DSH_PROMPT");
   });
 });

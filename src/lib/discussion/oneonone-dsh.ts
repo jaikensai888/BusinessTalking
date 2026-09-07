@@ -19,16 +19,6 @@ function frame(payload: Record<string, unknown>): Uint8Array {
   return encoder.encode(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
-function errorResponse(message: string): Response {
-  const stream = new ReadableStream<Uint8Array>({
-    start(c) {
-      c.enqueue(frame({ type: "error", message }));
-      c.close();
-    },
-  });
-  return new Response(stream, { headers: SSE_HEADERS });
-}
-
 /** 1v1 SSE：调用 DSH service 跑一轮，把完整回复作为一条 final delta 推送后 done */
 export function streamOneOnOneDsh(
   discussionId: string,
