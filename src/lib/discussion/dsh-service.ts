@@ -56,6 +56,22 @@ async function loadDiscussionSkills(discussionId: string) {
   return rows.map((r) => r.skillRevision);
 }
 
+async function loadDiscussionPermissions(discussionId: string): Promise<{ mode: "read-only"; approvalPolicy: "ask" | "never" }> {
+  const discussion = await prisma.discussion.findUnique({
+    where: { id: discussionId },
+    select: { permissionMode: true, approvalPolicy: true },
+  });
+  const mode = discussion?.permissionMode ?? "read-only";
+  const approvalPolicy = discussion?.approvalPolicy ?? "ask";
+  if (mode !== "read-only") {
+    throw new DshManifestError(`Discussion ${discussionId} permissionMode 必须是 read-only`);
+  }
+  if (approvalPolicy !== "ask" && approvalPolicy !== "never") {
+    throw new DshManifestError(`Discussion ${discussionId} approvalPolicy 非法`);
+  }
+  return { mode, approvalPolicy };
+}
+
 const MAX_SKILL_BYTES = 256 * 1024;
 
 function dshManifestFailure(message: string): never {
@@ -205,6 +221,7 @@ export async function buildPersonaManifest(
   }
 ): Promise<RuntimeSessionManifest> {
   const revisions = await loadDiscussionSkills(discussionId);
+  const permissions = await loadDiscussionPermissions(discussionId);
   const allowlist: RuntimeSessionManifest["allowedSkills"] = [
     {
       name: "persona-profile",
@@ -247,6 +264,7 @@ export async function buildPersonaManifest(
     },
     allowedSkills: allowlist,
     toolPolicy: { webSearch: false, sideEffects: false },
+    permissions,
   };
 }
 
@@ -481,6 +499,7 @@ export async function runTurnViaDsh(sessionId: string, prompt: string): Promise<
  * 使用真实 runtime profile，避免 schema 校验失败或模型启动前配置缺失。 */
 export async function writeModeratorManifestForSession(sessionId: string, discussionId: string): Promise<void> {
   const config = await getDshTurnConfig();
+  const permissions = await loadDiscussionPermissions(discussionId);
   const manifest: RuntimeSessionManifest = {
     schemaVersion: 1,
     sessionId,
@@ -494,6 +513,7 @@ export async function writeModeratorManifestForSession(sessionId: string, discus
     },
     allowedSkills: [],
     toolPolicy: { webSearch: false, sideEffects: false },
+    permissions,
   };
   parseManifest(manifest);
   writeManifestAtomic(manifest);

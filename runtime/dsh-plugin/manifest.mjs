@@ -130,6 +130,15 @@ function validateManifest(cwd, manifest, sessionId) {
     fail("P0 manifest 必须关闭 sideEffects 和 web_search");
   }
 
+  // Migration compatibility is safe-only: old manifests get read-only/ask;
+  // new manifests written by the TS side always carry this object explicitly.
+  const permissions = manifest.permissions ?? { mode: "read-only", approvalPolicy: "ask" };
+  if (!isObject(permissions) || permissions.mode !== "read-only" ||
+    (permissions.approvalPolicy !== "ask" && permissions.approvalPolicy !== "never")) {
+    fail("manifest permissions 必须是 read-only + ask/never");
+  }
+  manifest.permissions = permissions;
+
   if (!Array.isArray(manifest.allowedSkills)) fail("allowedSkills 必须是数组");
   const names = new Set();
   for (const entry of manifest.allowedSkills) {

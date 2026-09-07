@@ -2,16 +2,22 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const projectRoot = process.cwd();
 const pluginUrl = pathToFileURL(path.join(projectRoot, "runtime", "dsh-plugin", "index.mjs")).href;
 const previousSessionId = process.env.BT_DSH_SESSION_ID;
+const previousApprovalUrl = process.env.BT_DSH_APPROVAL_URL;
+const previousApprovalToken = process.env.BT_DSH_APPROVAL_TOKEN;
 const previousCwd = process.cwd();
 
 afterEach(() => {
   if (previousSessionId === undefined) delete process.env.BT_DSH_SESSION_ID;
   else process.env.BT_DSH_SESSION_ID = previousSessionId;
+  if (previousApprovalUrl === undefined) delete process.env.BT_DSH_APPROVAL_URL;
+  else process.env.BT_DSH_APPROVAL_URL = previousApprovalUrl;
+  if (previousApprovalToken === undefined) delete process.env.BT_DSH_APPROVAL_TOKEN;
+  else process.env.BT_DSH_APPROVAL_TOKEN = previousApprovalToken;
   process.chdir(previousCwd);
 });
 
@@ -27,6 +33,7 @@ interface MountedAgent {
   restrictedAllow: string[] | undefined;
   guard: ((execution: { name: string; agent?: { id: string } }) => string | undefined) | undefined;
   sections: { name: string; order: number; text: () => string }[];
+  approvalHandler: ((request: unknown, next: () => Promise<unknown>) => Promise<unknown>) | undefined;
 }
 
 async function captureMount(sessionId: string) {
@@ -38,6 +45,7 @@ async function captureMount(sessionId: string) {
     restrictedAllow: undefined,
     guard: undefined,
     sections: [],
+    approvalHandler: undefined,
   };
 
   const plugin = (await import(`${pluginUrl}?case=${sessionId}`)) as {
@@ -45,6 +53,10 @@ async function captureMount(sessionId: string) {
   };
 
   const fakeAgentScope = {
+    on: (event: string, handler: MountedAgent["approvalHandler"]) => {
+      if (event === "approval/request") mounted.approvalHandler = handler;
+      return () => undefined;
+    },
     skills: {
       registerProvider: (factory: typeof mounted.providerFactory) => {
         mounted.providerFactory = factory;
@@ -107,6 +119,7 @@ function writeFixtureManifest(opts: {
   toolPolicy?: { webSearch: boolean; sideEffects: boolean };
   kind?: "persona" | "moderator";
   persona?: object | null;
+  permissions?: { mode: "read-only"; approvalPolicy: "ask" | "never" };
 }) {
   const sessionId = opts.sessionId;
   const root = path.join(projectRoot, "data", "dsh");
@@ -146,6 +159,7 @@ function writeFixtureManifest(opts: {
       persona,
       allowedSkills,
       toolPolicy: opts.toolPolicy ?? { webSearch: false, sideEffects: false },
+      permissions: opts.permissions ?? { mode: "read-only", approvalPolicy: "ask" },
     }),
     "utf8"
   );
@@ -351,6 +365,62 @@ describe("business-talking DSH plugin (P0 scoped mount)", () => {
     } finally {
       fs.rmSync(manifestPath, { force: true });
       fs.rmSync(snapshotRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed when approval endpoint/token is absent and never delegates to next", async () => {
+    const sessionId = `bt-plugin-approval-unavailable-${crypto.randomUUID()}`;
+    const { manifestPath, snapshotRoot } = writeFixtureManifest({ sessionId });
+    delete process.env.BT_DSH_APPROVAL_URL;
+    delete process.env.BT_DSH_APPROVAL_TOKEN;
+    try {
+      const { mounted } = await captureMount(sessionId) as { mounted: MountedAgent };
+      expect(mounted.approvalHandler).toBeTypeOf("function");
+      const next = vi.fn(async () => "allowed-once");
+      const outcome = await mounted.approvalHandler?.({ agent: { id: sessionId }, toolName: "tool-test" }, next);
+      expect(outcome).toBe("unavailable");
+      expect(next).not.toHaveBeenCalled();
+    } finally {
+      fs.rmSync(manifestPath, { force: true });
+      fs.rmSync(snapshotRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("enforces never before HTTP and sends only opaque approval fields for ask", async () => {
+    const neverId = `bt-plugin-approval-never-${crypto.randomUUID()}`;
+    const neverFixture = writeFixtureManifest({ sessionId: neverId, permissions: { mode: "read-only", approvalPolicy: "never" } });
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as typeof fetch;
+    try {
+      process.env.BT_DSH_APPROVAL_URL = "http://127.0.0.1/internal";
+      process.env.BT_DSH_APPROVAL_TOKEN = "token";
+      const never = await captureMount(neverId) as { mounted: MountedAgent };
+      await expect(never.mounted.approvalHandler?.({ agent: { id: neverId }, toolName: "tool-bash" }, vi.fn())).resolves.toBe("rejected");
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      const askId = `bt-plugin-approval-ask-${crypto.randomUUID()}`;
+      const askFixture = writeFixtureManifest({ sessionId: askId, permissions: { mode: "read-only", approvalPolicy: "ask" } });
+      fetchMock.mockResolvedValue(new Response(JSON.stringify({ outcome: "allowed-once" }), { status: 200 }));
+      const ask = await captureMount(askId) as { mounted: MountedAgent };
+      await expect(ask.mounted.approvalHandler?.({
+        agent: { id: askId },
+        toolName: "tool-test",
+        callId: "call-1",
+        reason: "why",
+        arguments: { command: "must-not-forward" },
+      }, vi.fn())).resolves.toBe("allowed-once");
+      const request = fetchMock.mock.calls[0][1] as RequestInit;
+      const payload = JSON.parse(String(request.body));
+      expect(payload).toMatchObject({ discussionId: "discussion-test", sessionId: askId, toolName: "tool-test", callId: "call-1", reason: "why" });
+      expect(payload.arguments).toBeUndefined();
+      expect((request.headers as Record<string, string>)["x-bt-internal-token"]).toBe("token");
+      fs.rmSync(askFixture.manifestPath, { force: true });
+      fs.rmSync(askFixture.snapshotRoot, { recursive: true, force: true });
+    } finally {
+      globalThis.fetch = originalFetch;
+      fs.rmSync(neverFixture.manifestPath, { force: true });
+      fs.rmSync(neverFixture.snapshotRoot, { recursive: true, force: true });
     }
   });
 });

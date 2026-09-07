@@ -8,6 +8,11 @@
  * 说明：本应用是本地单实例（Next.js + SQLite），用模块级 Map 即可跨请求共享；
  * 若未来多实例部署，需要换成 Redis pub/sub 之类的外部通道。
  */
+export interface DiscussionBroadcastEvent {
+  type: string;
+  [key: string]: unknown;
+}
+
 type Listener = (event: { type: string }) => void;
 
 const channels = new Map<string, Set<Listener>>();
@@ -27,7 +32,7 @@ export function subscribe(id: string, cb: Listener): () => void {
 }
 
 /** 向某个 discussion 的所有订阅方广播一个通知 */
-export function publish(id: string, event: { type: string }) {
+export function publish<T extends { type: string }>(id: string, event: T) {
   const set = channels.get(id);
   if (!set) return;
   for (const cb of set) {

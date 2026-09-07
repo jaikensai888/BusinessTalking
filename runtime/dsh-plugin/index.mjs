@@ -11,6 +11,7 @@
  *    id 与 manifest 不一致或 manifest 不存在时直接拒绝（fail-closed）。
  *  - 不写任何 marker/工作区文件；不改全局 context。
  */
+import { randomUUID } from "node:crypto";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import {
   loadManifest,
@@ -193,6 +194,51 @@ function readPersonaSkill(cwd, manifest) {
   return body;
 }
 
+function approvalSignal(request) {
+  const timeout = AbortSignal.timeout(2 * 60 * 1000);
+  if (!request?.signal) return timeout;
+  if (typeof AbortSignal.any === "function") return AbortSignal.any([request.signal, timeout]);
+  return request.signal;
+}
+
+/**
+ * Bridge one native DSH approval/request to the local authenticated BT route.
+ * The native request deliberately has no tool arguments; only opaque identity
+ * and a human-readable reason cross this boundary.
+ */
+async function requestApprovalOverLocalHttp({ manifest, request, endpoint, token }) {
+  const { sessionId } = assertAgentIdentity(request);
+  const approvalId = typeof request.approvalId === "string" && isSafeSessionId(request.approvalId)
+    ? request.approvalId
+    : randomUUID();
+  const body = {
+    approvalId,
+    discussionId: manifest.discussionId,
+    sessionId,
+    toolName: typeof request.toolName === "string" ? request.toolName : "unknown",
+    ...(typeof request.callId === "string" ? { callId: request.callId } : {}),
+    ...(typeof request.reason === "string" ? { reason: request.reason.slice(0, 1000) } : {}),
+  };
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-bt-internal-token": token },
+      body: JSON.stringify(body),
+      signal: approvalSignal(request),
+    });
+    if (!response.ok) return "unavailable";
+    const result = await response.json();
+    if (!result || typeof result !== "object" ||
+      !["allowed-once", "rejected", "cancelled", "unavailable"].includes(result.outcome)) {
+      return "unavailable";
+    }
+    if (result.approvalId !== undefined && result.approvalId !== approvalId) return "unavailable";
+    return result.outcome;
+  } catch {
+    return "unavailable";
+  }
+}
+
 /**
  * 在 agent 的 scoped context 上注册 provider/tools/restrict/guard（P0 Task 2.2）。
  * 不接受调用方传入 sessionId：全部从 agent.id 取得。
@@ -319,6 +365,23 @@ function mountAgentScope(agent) {
       const skillBody = readPersonaSkill(CWD(), m);
       return `${skillBody}\n\n<persona ${m.persona.name}>\n${m.persona.systemPrompt}`;
     },
+    });
+
+    if (typeof scoped.on !== "function") {
+      throw dshError("DSH_MANIFEST_INVALID", "当前 DSH scope 不支持 approval/request");
+    }
+    scoped.on("approval/request", async (request, _next) => {
+      const { sessionId: requestSessionId } = assertAgentIdentity(request);
+      const current = loadManifest(CWD(), requestSessionId);
+      if (current.sessionId !== sessionId || current.discussionId !== manifest.discussionId) {
+        return "unavailable";
+      }
+      if (current.permissions?.mode !== "read-only") return "unavailable";
+      if (current.permissions.approvalPolicy === "never") return "rejected";
+      const endpoint = process.env.BT_DSH_APPROVAL_URL;
+      const token = process.env.BT_DSH_APPROVAL_TOKEN;
+      if (!endpoint || !token) return "unavailable";
+      return await requestApprovalOverLocalHttp({ manifest: current, request, endpoint, token });
     });
 
     // scoped 只读工具（read_skill_reference 必注册；web_search 仅 manifest 允许时）

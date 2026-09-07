@@ -7,8 +7,10 @@ const H = (s: string) => crypto.createHash("sha256").update(s).digest("hex");
 
 // mock prisma：只暴露 discussionSkill/manifest 层
 const mockDiscussionSkillFindMany = vi.fn();
+const mockDiscussionFindUnique = vi.fn();
 vi.mock("@/lib/db", () => ({
   prisma: {
+    discussion: { findUnique: (...args: unknown[]) => mockDiscussionFindUnique(...args) },
     discussionSkill: { findMany: (...args: unknown[]) => mockDiscussionSkillFindMany(...args) },
     discussionParticipant: { update: vi.fn(), findUnique: vi.fn() },
   },
@@ -52,6 +54,8 @@ describe("dsh-service manifest (P0 Task 3)", () => {
   beforeEach(() => {
     mockDiscussionSkillFindMany.mockReset();
     mockDiscussionSkillFindMany.mockResolvedValue([]);
+    mockDiscussionFindUnique.mockReset();
+    mockDiscussionFindUnique.mockResolvedValue({ permissionMode: "read-only", approvalPolicy: "ask" });
   });
 
   it("builds a persona manifest with only persona-profile when no DiscussionSkill exists", async () => {

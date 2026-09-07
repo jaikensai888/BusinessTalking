@@ -79,6 +79,11 @@ export const ToolPolicySchema = z.object({
   sideEffects: z.literal(false),
 });
 
+export const PermissionsSchema = z.object({
+  mode: z.literal("read-only"),
+  approvalPolicy: z.enum(["ask", "never"]),
+});
+
 export const RuntimeSessionManifestSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -90,6 +95,9 @@ export const RuntimeSessionManifestSchema = z
     persona: PersonaSchema.optional(),
     allowedSkills: z.array(AllowedSkillSchema),
     toolPolicy: ToolPolicySchema,
+    // Older manifests are accepted only with the safe migration defaults;
+    // every newly written manifest includes this object explicitly.
+    permissions: PermissionsSchema.default({ mode: "read-only", approvalPolicy: "ask" }),
   })
   .superRefine((m, ctx) => {
     const add = (msg: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, message: msg });
@@ -129,6 +137,7 @@ export type RuntimeProfile = z.infer<typeof RuntimeProfileSchema>;
 export type PersonaBlock = z.infer<typeof PersonaSchema>;
 export type AllowedSkill = z.infer<typeof AllowedSkillSchema>;
 export type ToolPolicy = z.infer<typeof ToolPolicySchema>;
+export type ManifestPermissions = z.infer<typeof PermissionsSchema>;
 export type RuntimeSessionManifest = z.infer<typeof RuntimeSessionManifestSchema>;
 
 /** manifest 落盘根目录 */

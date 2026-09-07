@@ -42,6 +42,7 @@ function validManifest(overrides: Partial<RuntimeSessionManifest> = {}): Runtime
       { name: "market-research", version: "1.0.0", contentHash: H("market"), packageRoot: "/p", description: "d", resourceIndex: [] },
     ],
     toolPolicy: { webSearch: false, sideEffects: false },
+    permissions: { mode: "read-only", approvalPolicy: "ask" },
     ...overrides,
   };
 }
