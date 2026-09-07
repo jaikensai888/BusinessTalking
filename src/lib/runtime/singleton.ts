@@ -14,6 +14,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { DshRuntimeManager } from "./manager";
+import { DiscussionSessionManager } from "./discussion-session-manager";
 import { buildRuntimeProfile, type ProfileInput } from "./profile";
 import { getSetting } from "@/lib/settings/store";
 import { decrypt } from "@/lib/settings/encryption";
@@ -21,6 +22,9 @@ import { DshCredentialInvalidError } from "@/lib/dsh/errors";
 import type { RuntimeProfile } from "./types";
 
 let manager: DshRuntimeManager | null = null;
+const discussionManagerGlobal = globalThis as typeof globalThis & {
+  __businessTalkingDiscussionSessionManager?: DiscussionSessionManager;
+};
 
 export interface DshTurnConfig {
   profile: RuntimeProfile;
@@ -29,6 +33,36 @@ export interface DshTurnConfig {
   dshBin?: string;
   dshHome: string;
   patches: string[];
+}
+
+/** 获取按 Discussion 隔离的长期 DSH Session registry（HMR 下仍保持单例）。 */
+export function getDiscussionSessionManager(): DiscussionSessionManager {
+  if (!discussionManagerGlobal.__businessTalkingDiscussionSessionManager) {
+    discussionManagerGlobal.__businessTalkingDiscussionSessionManager = new DiscussionSessionManager();
+  }
+  return discussionManagerGlobal.__businessTalkingDiscussionSessionManager;
+}
+
+/** 将当前真实设置转换为长期 Session child 所需配置；secret 只在内存中交给 child env。 */
+export async function getDiscussionSessionConfig(options: {
+  approvalUrl?: string;
+  approvalToken?: string;
+} = {}) {
+  const config = await getDshTurnConfig();
+  return {
+    profile: config.profile,
+    processOptions: {
+      cwd: config.cwd,
+      dshBin: config.dshBin ?? "",
+      dshHome: config.dshHome,
+      patches: config.patches,
+      provider: config.profile.dshRoute ?? config.profile.provider,
+      model: config.profile.model,
+      apiKey: config.apiKey,
+      approvalUrl: options.approvalUrl,
+      approvalToken: options.approvalToken,
+    },
+  };
 }
 
 /** 解析 `@deepseek-ai/dsh` 包的真实 CLI bin（相对项目，避免解析到桌面版） */
@@ -159,5 +193,9 @@ export async function shutdownRuntime(): Promise<void> {
   if (manager) {
     await manager.close();
     manager = null;
+  }
+  if (discussionManagerGlobal.__businessTalkingDiscussionSessionManager) {
+    await discussionManagerGlobal.__businessTalkingDiscussionSessionManager.closeAll();
+    delete discussionManagerGlobal.__businessTalkingDiscussionSessionManager;
   }
 }
