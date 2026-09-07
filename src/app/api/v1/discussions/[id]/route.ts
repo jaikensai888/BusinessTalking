@@ -1,6 +1,7 @@
 import { err, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { archiveDiscussion } from "@/lib/discussion/archive";
+import { getDiscussionEventCursor } from "@/lib/discussion/event-ledger";
 import { parseDiscussionState } from "@/lib/discussion/state";
 
 /** GET /api/v1/discussions/:id — 讨论详情（消息流 + 产物 + 参与者/运行时/结构化状态） */
@@ -22,6 +23,7 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/v1/discussions/
     select: { id: true, name: true, perspectiveType: true },
   });
   const state = d.discussionState ? parseDiscussionState(d.discussionState) : null;
+  const eventCursor = await getDiscussionEventCursor(id);
 
   return ok({
     id: d.id,
@@ -31,6 +33,9 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/v1/discussions/
     status: d.status,
     summaryBox: d.summaryBox,
     runtimeMode: d.runtimeMode,
+    permissionMode: d.permissionMode,
+    approvalPolicy: d.approvalPolicy,
+    eventCursor,
     stateVersion: d.stateVersion,
     archivedAt: d.archivedAt,
     purgeAt: d.purgeAt,

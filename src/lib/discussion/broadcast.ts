@@ -13,7 +13,7 @@ export interface DiscussionBroadcastEvent {
   [key: string]: unknown;
 }
 
-type Listener = (event: { type: string }) => void;
+type Listener = (event: DiscussionBroadcastEvent) => void;
 
 const channels = new Map<string, Set<Listener>>();
 
