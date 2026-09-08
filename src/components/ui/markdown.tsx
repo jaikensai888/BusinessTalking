@@ -2,6 +2,7 @@
 
 import { type ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { CopyText } from "@/components/discussions/message-actions";
 
 function inline(text: string, names?: Set<string>, seed = 0): ReactNode[] {
   const out: ReactNode[] = [];
@@ -29,7 +30,7 @@ function inline(text: string, names?: Set<string>, seed = 0): ReactNode[] {
     } else if (tok.startsWith("[")) {
       const lm = tok.match(/\[([^\]]+)\]\(([^)]+)\)/)!;
       out.push(
-        <a key={key++} href={lm[2]} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2">
+        <a key={key++} href={/^(https?:\/\/|\/|#)/i.test(lm[2]) && !lm[2].startsWith("//") ? lm[2] : undefined} target="_blank" rel="noreferrer" className={cn("underline underline-offset-2 break-words", "text-inherit")}>
           {lm[1]}
         </a>
       );
@@ -64,6 +65,7 @@ export function Markdown({
   let para: ReactNode[] = [];
   let list: ReactNode[] = [];
   let inList = false;
+  let ordered = false;
 
   const flushPara = () => {
     if (para.length) {
@@ -77,18 +79,42 @@ export function Markdown({
   };
   const flushList = () => {
     if (inList) {
-      blocks.push(
-        <ul key={blocks.length} className="my-1 list-disc space-y-0.5 pl-4 first:mt-0 last:mb-0">
-          {list}
-        </ul>
-      );
+      const List = ordered ? "ol" : "ul";
+      blocks.push(<List key={blocks.length} className={cn("my-2 space-y-1 pl-6 first:mt-0 last:mb-0", ordered ? "list-decimal" : "list-disc")}>{list}</List>);
       list = [];
       inList = false;
     }
   };
 
-  for (const raw of children.split("\n")) {
+  const lines = children.split("\n");
+  const cells = (line: string) => line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+  for (let index = 0; index < lines.length; index++) {
+    const raw = lines[index];
     const t = raw.trim();
+    if (t.startsWith("```")) {
+      flushPara(); flushList();
+      const language = t.slice(3).trim();
+      const code: string[] = [];
+      while (++index < lines.length && !lines[index].trim().startsWith("```")) code.push(lines[index]);
+      const text = code.join("\n");
+      blocks.push(<div key={blocks.length} className="my-3 overflow-hidden rounded-md border border-hairline bg-parchment text-ink">
+        <div className="flex items-center justify-between px-3 text-fine text-ink-48"><span>{language || "代码"}</span><CopyText text={text} label="复制代码" /></div>
+        <pre className="overflow-x-auto px-4 pb-4 text-caption"><code>{text}</code></pre>
+      </div>);
+      continue;
+    }
+    if (t.includes("|") && index + 1 < lines.length && cells(lines[index + 1]).every((cell) => /^:?-{3,}:?$/.test(cell))) {
+      flushPara(); flushList();
+      const headings = cells(t);
+      const rows: string[][] = [];
+      index++;
+      while (index + 1 < lines.length && lines[index + 1].includes("|")) rows.push(cells(lines[++index]));
+      blocks.push(<div key={blocks.length} className="my-3 max-w-full overflow-x-auto rounded-md border border-hairline"><table className="w-full border-collapse text-left text-caption">
+        <thead><tr>{headings.map((cell, i) => <th key={i} scope="col" className="border-b border-hairline bg-ink/5 px-3 py-2 font-semibold">{inline(cell)}</th>)}</tr></thead>
+        <tbody>{rows.map((row, i) => <tr key={i}>{headings.map((_, j) => <td key={j} className="border-b border-hairline/50 px-3 py-2">{inline(row[j] ?? "")}</td>)}</tr>)}</tbody>
+      </table></div>);
+      continue;
+    }
     if (!t) {
       flushPara();
       flushList();
@@ -96,12 +122,16 @@ export function Markdown({
     }
     if (/^[-*] /.test(t)) {
       flushPara();
+      if (inList && ordered) flushList();
+      ordered = false;
       inList = true;
       list.push(<li key={list.length}>{inline(t.slice(2), names)}</li>);
       continue;
     }
     if (/^\d+\. /.test(t)) {
       flushPara();
+      if (inList && !ordered) flushList();
+      ordered = true;
       inList = true;
       list.push(<li key={list.length}>{inline(t.replace(/^\d+\.\s*/, ""), names)}</li>);
       continue;
@@ -120,8 +150,8 @@ export function Markdown({
         <div
           key={blocks.length}
           className={cn(
-            "py-0.5 font-semibold",
-            lvl === 1 ? "text-caption" : lvl === 2 ? "text-caption" : "text-caption",
+            "mb-2 mt-4 font-semibold first:mt-0",
+            lvl === 1 ? "text-xl" : lvl === 2 ? "text-lg" : "text-base",
             tone === "dark" ? "text-white" : "text-ink"
           )}
         >
@@ -151,5 +181,5 @@ export function Markdown({
   flushPara();
   flushList();
 
-  return <div className={cn("whitespace-normal", className)}>{blocks}</div>;
+  return <div className={cn("min-w-0 whitespace-normal break-words [overflow-wrap:anywhere]", className)}>{blocks}</div>;
 }

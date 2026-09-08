@@ -16,9 +16,13 @@ import {
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import type { DshTurnView } from "@/lib/discussion/dsh-turn-projection";
+import { Avatar } from "@/components/ui/avatar";
+import { Markdown } from "@/components/ui/markdown";
+import { SearchSources } from "./search-sources";
 
 interface DshTurnProcessProps {
   turn: DshTurnView;
+  name?: string;
 }
 
 function displayValue(value: unknown, max = 720): string {
@@ -40,9 +44,10 @@ function durationLabel(durationMs: number | null): string {
 export function resolveTurnExpanded(
   status: DshTurnView["status"],
   manualExpanded: boolean | null,
-  collapsed: boolean,
+  _collapsed: boolean,
 ): boolean {
-  return manualExpanded ?? (status === "running" ? true : !collapsed);
+  void _collapsed; // Retain the public helper signature for callers using the old projection flag.
+  return manualExpanded ?? status === "failed";
 }
 
 function ToolStatus({ status }: { status: DshTurnView["tools"][number]["status"] }) {
@@ -53,7 +58,7 @@ function ToolStatus({ status }: { status: DshTurnView["tools"][number]["status"]
 }
 
 /** A compact, collapsible transcript of one DSH turn. */
-export function DshTurnProcess({ turn }: DshTurnProcessProps) {
+export function DshTurnProcess({ turn, name = "讨论主持人" }: DshTurnProcessProps) {
   const [manualExpanded, setManualExpanded] = useState<boolean | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const bodyRef = useRef<HTMLDivElement | null>(null);
@@ -78,20 +83,21 @@ export function DshTurnProcess({ turn }: DshTurnProcessProps) {
   const durationMs = turn.durationMs
     ?? (turn.startedAtMs === null ? null : Math.max(0, (turn.endedAtMs ?? now) - turn.startedAtMs));
   const detailCount = turn.reasoning.length + turn.tools.length + turn.steps.length;
-  const title = turn.tools.length > 0
-    ? `${turn.tools.length} 次工具调用`
-    : turn.status === "running" ? "正在处理" : turn.status === "completed" ? "已完成" : "未完成";
+  const title = turn.status === "running"
+    ? turn.liveAnswer ? "正在回答" : turn.tools.some((tool) => tool.name === "web_search" && tool.status === "running") ? "正在查资料" : "正在思考"
+    : turn.status === "completed" ? "处理完成" : "回答未完成";
 
   return (
-    <section className="rounded-lg border border-hairline bg-white/80" aria-label="DSH 回合过程">
+    <section className="min-w-0" aria-label={`${name}的处理过程`}>
+      <div className="mb-2 flex items-center gap-2 text-caption font-semibold text-ink"><Avatar name={name} size="sm" />{name}{turn.turnNumber !== undefined && <span className="text-fine font-normal text-ink-48">第 {turn.turnNumber} 轮</span>}</div>
       <button
         type="button"
         aria-expanded={expanded}
         onClick={() => setManualExpanded(!expanded)}
-        className="flex w-full items-center gap-2 px-3.5 py-2.5 text-left text-fine text-ink-60 transition-colors hover:bg-parchment/60"
+        className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 py-2 text-left text-caption text-ink-60 transition-colors hover:bg-white"
       >
         {expanded ? <CaretDown size={14} className="shrink-0 text-ink-40" /> : <CaretRight size={14} className="shrink-0 text-ink-40" />}
-        <span className="font-semibold text-ink-80">{title}</span>
+        <span className="text-ink-48">{title}</span><span className="hidden text-fine text-ink-48 sm:inline">{turn.tools.length > 0 ? `· ${turn.tools.length} 项操作` : ""}</span>
         <span className="ml-auto flex items-center gap-1.5 text-ink-40">
           <Clock size={13} /> {durationLabel(durationMs)}
           {turn.status === "running" && <SpinnerGap size={13} className="animate-spin text-primary" />}
@@ -103,7 +109,7 @@ export function DshTurnProcess({ turn }: DshTurnProcessProps) {
       {expanded && (
         <div
           ref={bodyRef}
-          className="max-h-[min(60vh,480px)] overflow-y-auto overscroll-contain border-t border-divider-soft px-3.5 pb-3 pt-2.5"
+          className="mt-2 max-h-80 overflow-y-auto overscroll-contain rounded-md border border-hairline bg-white px-3.5 pb-3 pt-2.5"
         >
           {turn.reasoning.map((item) => (
             <div key={item.id} className="flex gap-2.5 border-l border-primary/20 py-1.5 pl-2.5 text-fine leading-5 text-ink-60">
@@ -141,12 +147,6 @@ export function DshTurnProcess({ turn }: DshTurnProcessProps) {
             </div>
           ))}
 
-          {!turn.hasFinalMessage && turn.liveAnswer && (
-            <div className="mt-2 rounded-sm border border-primary/15 bg-primary/5 px-2.5 py-2 text-fine leading-5 text-ink-80">
-              <div className="mb-0.5 text-fine text-primary">回复生成中</div>
-              <div className="whitespace-pre-wrap break-words">{turn.liveAnswer}</div>
-            </div>
-          )}
 
           {turn.error && (
             <div className="mt-2 flex gap-2 rounded-sm bg-error/5 px-2.5 py-2 text-fine leading-5 text-error">
@@ -160,6 +160,8 @@ export function DshTurnProcess({ turn }: DshTurnProcessProps) {
           )}
         </div>
       )}
+      {!turn.hasFinalMessage && turn.liveAnswer && <div className="mt-2 rounded-lg bg-white px-4 py-3 text-base leading-7"><Markdown>{turn.liveAnswer}</Markdown></div>}
+      <SearchSources tools={turn.tools} />
     </section>
   );
 }

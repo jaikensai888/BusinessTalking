@@ -1,12 +1,13 @@
 "use client";
 
-import { Fragment, Suspense, useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "react";
+import { Fragment, Suspense, useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowUp, ChatCircleDots, FilePdf, FileText, PaperPlaneTilt, Plus, SpinnerGap, UsersThree, X } from "@phosphor-icons/react";
+import { ArrowUp, ChatCircleDots, FilePdf, FileText, Plus, SpinnerGap, X } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import { getOneOnOneFailure, hasNewPersonaReply, isOneOnOneReplyPending } from "@/lib/discussion/live-state";
 import { useDiscussionEvents } from "@/hooks/use-discussion-events";
 import type { DshToolView } from "@/lib/discussion/dsh-turn-projection";
+import { assignProcessTurns } from "@/lib/discussion/message-order";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -16,11 +17,12 @@ import { Markdown } from "@/components/ui/markdown";
 import { DshApprovalPanel } from "@/components/discussions/dsh-approval-panel";
 import { DshTurnProcess } from "@/components/discussions/dsh-turn-process";
 import { DiscussionPermissionControl } from "@/components/discussions/discussion-permission-control";
+import { CopyText } from "@/components/discussions/message-actions";
 
 interface PersonaOption { id: string; name: string; perspectiveType: string }
 interface Msg { id: string; sender: string; role: string; turn: number; content: string; createdAt: string; sessionId?: string | null; streaming?: boolean }
 interface Artifact { id: string; title: string; type: string; filePath?: string | null; summary?: string | null; content: string; createdAt: string }
-interface ParticipantState { id: string; personaId: string; status: string; lastError?: string | null }
+interface ParticipantState { id: string; personaId: string; dshSessionId?: string; status: string; lastError?: string | null }
 interface Discussion {
   id: string;
   brief: string;
@@ -29,6 +31,7 @@ interface Discussion {
   permissionMode?: string;
   approvalPolicy?: string;
   eventCursor?: number;
+  discussionState?: { round: number } | null;
   personas: PersonaOption[];
   participants?: ParticipantState[];
   messages: Msg[];
@@ -38,11 +41,6 @@ interface Discussion {
   attachmentTruncated?: boolean | null;
   shortId?: string | null;
 }
-
-const TYPE_LABEL: Record<string, string> = {
-  investor: "投资人", entrepreneur: "创业者", economist: "经济学家", analyst: "分析师",
-  customer: "客户", competitor: "竞对", custom: "自定义",
-};
 
 /** 消息日期标签（用于按天分隔）：今天 / 昨天 / 9月2日 */
 function dayLabel(iso: string): string {
@@ -75,7 +73,11 @@ function DiscussionsContent() {
   const replyPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const steerStreamingRef = useRef(false); // 1v1 / 追问 流式期间为 true，避免 /stream 的 change 覆盖乐观气泡
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const steerRef = useRef<HTMLInputElement | null>(null);
+  const steerRef = useRef<HTMLTextAreaElement | null>(null);
+  const followScrollRef = useRef(true);
+  const [hasNewUpdates, setHasNewUpdates] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [detailTab, setDetailTab] = useState<"members" | "files">("members");
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [viewArtifact, setViewArtifact] = useState<Artifact | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -85,6 +87,8 @@ function DiscussionsContent() {
   const [followUp, setFollowUp] = useState<{ personaId: string; name: string } | null>(null);
   /** ≤1024px 时右侧「参与人 / 产物」面板浮为抽屉，默认收起 */
   const [panelOpen, setPanelOpen] = useState(false);
+  const closeSettings = useCallback(() => setSettingsOpen(false), []);
+  const closeArtifact = useCallback(() => setViewArtifact(null), []);
 
   useEffect(() => {
     fetch("/api/v1/personas?page_size=100")
@@ -277,8 +281,14 @@ function DiscussionsContent() {
   });
 
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    if (followScrollRef.current && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    else setHasNewUpdates(true);
   }, [current?.messages.length, eventStream.process.turns.length, eventStream.process.cursor]);
+
+  useEffect(() => {
+    const input = steerRef.current;
+    if (input) { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 168) + "px"; }
+  }, [steer]);
 
   // 从工作台会话空间卡片进入：加载已有讨论线程，并实时订阅进展
   useEffect(() => {
@@ -292,7 +302,9 @@ function DiscussionsContent() {
   }, [viewId]);
 
   const sendSteer = async () => {
-    if (!current || !steer.trim() || sending) return;
+    if (!current || !steer.trim() || sending || eventStream.process.pendingApprovals.length > 0) return;
+    followScrollRef.current = true;
+    setHasNewUpdates(false);
     const question = steer;
     const discussionId = current.id;
     const previousReplyCount = current.messages.filter(
@@ -462,23 +474,28 @@ function DiscussionsContent() {
       const d = await res.json();
       if (d.code === 0) void load(discussionId);
       else setError(d.message ?? "插话失败");
+    } catch {
+      setError("发送失败，请检查连接后重试");
+      setSteer((draft) => draft || question);
     } finally {
       setSending(false);
     }
   };
 
   const summarize = async () => {
-    if (!current) return;
+    if (!current || summarizing) return;
     setSummarizing(true);
-    const res = await fetch(`/api/v1/discussions/${current.id}/summary`, { method: "POST" });
-    const d = await res.json();
-    setSummarizing(false);
-    if (d.code === 0) void load(current.id);
-    else setError(d.message ?? "生成建议失败");
+    try {
+      const res = await fetch(`/api/v1/discussions/${current.id}/summary`, { method: "POST" });
+      const d = await res.json();
+      if (d.code === 0) { void load(current.id); setDetailTab("files"); setPanelOpen(true); }
+      else setError(d.message ?? "生成总结失败");
+    } catch { setError("生成总结失败，请检查连接后重试"); }
+    finally { setSummarizing(false); }
   };
 
   // @ 提及：输入时检测光标前的 "@",弹出成员选择
-  const handleSteerChange = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleSteerChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     setSteer(val);
     const pos = e.target.selectionStart ?? val.length;
@@ -536,19 +553,43 @@ function DiscussionsContent() {
       .flatMap((turn) => turn.tools)
       .find((tool: DshToolView) => tool.callId === pendingApproval.callId)?.input
     : undefined;
-  const renderedTurnKeys = new Set<string>();
+  const processParticipants = (current?.participants ?? []).flatMap((participant) => {
+    const persona = current?.personas.find((item) => item.id === participant.personaId);
+    return participant.dshSessionId && persona
+      ? [{ sessionId: participant.dshSessionId, personaName: persona.name }]
+      : [];
+  });
+  const processAssignments = assignProcessTurns(visibleMessages, processTurns, processParticipants);
+  const processTurnsByKey = new Map(processTurns.map((turn) => [turn.key, turn]));
+  const assignedTurnKeys = new Set(processAssignments.values());
 
-  const processTurnForMessage = (message: Msg) => {
-    if (message.role === "user" || message.role === "summary") return undefined;
-    const bySession = message.sessionId
-      ? processTurns.filter((turn) => turn.sessionId === message.sessionId)
-      : processTurns;
-    return bySession.find((turn) => turn.turnNumber === message.turn && !renderedTurnKeys.has(turn.key))
-      ?? bySession.find((turn) => turn.hasFinalMessage && !renderedTurnKeys.has(turn.key));
+  const nameForSession = (sessionId: string) => {
+    const participant = current?.participants?.find((p) => p.dshSessionId === sessionId);
+    return current?.personas.find((p) => p.id === participant?.personaId)?.name
+      ?? current?.messages.find((m) => m.sessionId === sessionId && m.role === "persona")?.sender
+      ?? "讨论主持人";
+  };
+  const participantStatus = (personaId: string) => {
+    const participant = current?.participants?.find((p) => p.personaId === personaId);
+    if (pendingApproval?.sessionId === participant?.dshSessionId && pendingApproval) return "等待批准";
+    const turn = processTurns.filter((t) => t.sessionId === participant?.dshSessionId).at(-1);
+    if (turn?.status === "running") return turn.liveAnswer ? "正在回答" : "正在思考 / 查资料";
+    return ({ pending: "等待开始", running: "正在处理", completed: "本轮完成", failed: "回答失败", archived: "已归档" } as Record<string, string>)[participant?.status ?? ""] ?? "等待开始";
+  };
+  const discussionStatus = pendingApproval ? "等待批准" : running ? "讨论进行中" : current?.status === "failed" ? "讨论未完成" : "可继续提问";
+  const roundNumber = Math.max(current?.discussionState?.round ?? 0, ...processTurns.map((t) => t.turnNumber ?? 0), ...visibleMessages.filter((m) => m.role === "persona").map((m) => m.turn));
+  const roundLabel = roundNumber > 0
+    ? `第 ${roundNumber} / ${current?.rounds ?? 0} 轮`
+    : current?.status === "done" ? "讨论已结束" : current?.status === "failed" ? "等待恢复" : "准备中";
+  const quoteMessage = (message: Msg) => {
+    const persona = current?.personas.find((p) => p.name === message.sender);
+    if (persona && canFollowUp) setFollowUp({ personaId: persona.id, name: persona.name });
+    setSteer((draft) => (draft ? draft + "\n\n" : "") + (persona && !canFollowUp ? "@" + persona.name + " " : "") + "关于「" + message.content.slice(0, 180) + "」\n");
+    steerRef.current?.focus();
   };
 
   return (
-    <div className="mx-auto h-[calc(100vh-44px)] max-w-[1500px] px-4 sm:px-6">
+    <div className="mx-auto h-[calc(100dvh-44px)] max-w-[1500px] px-4 sm:px-6">
       {/* 发起讨论（仅非查看模式） */}
       {!viewId && (
         <div
@@ -684,340 +725,93 @@ function DiscussionsContent() {
           <div className="h-48 animate-pulse rounded-lg bg-pearl" />
         )
       ) : (
-          <div className="relative flex h-full">
-            {/* 左列：聊天（无顶部标题栏） */}
-            <div className="flex min-w-0 flex-1 flex-col">
-              {error && (
-                <div role="alert" className="mx-4 mt-3 rounded-lg border border-error/20 bg-error/5 px-4 py-3 text-caption text-error">
-                  <div className="font-semibold">本次回答未完成</div>
-                  <div className="mt-1 break-words text-fine leading-5">{error}</div>
-                </div>
-              )}
-              {eventStream.streamError && (
-                <div role="status" className="mx-4 mt-3 flex items-center gap-2 rounded-lg border border-warning/20 bg-warning/5 px-4 py-2.5 text-fine text-ink-60">
-                  <SpinnerGap size={14} className="animate-spin text-warning" />
-                  {eventStream.streamError}
-                </div>
-              )}
-              <div
-                ref={scrollRef}
-                className="flex-1 space-y-6 overflow-y-auto bg-parchment px-6 py-6"
-              >
-                {visibleMessages.length === 0 && processTurns.length === 0 ? (
-                  <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-                    <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                      <ChatCircleDots size={22} weight="duotone" />
-                    </div>
-                    <p className="text-caption text-ink-48">
-                      {isOne ? `向 ${current.personas?.[0]?.name ?? "专家"} 提问，开始一对一交流` : "专家们正在陆续登场…"}
-                    </p>
-                  </div>
-                ) : (
-                  visibleMessages.map((m, idx) => {
-                    if (m.role === "summary") {
-                      return (
-                        <div key={m.id} className="mx-auto max-w-[85%] rounded-lg border border-success/20 bg-success/10 px-4 py-3 text-caption text-ink-80">
-                          <div className="mb-1.5 flex items-center gap-1.5 text-fine font-semibold text-success-ink">
-                            <span className="flex h-4 w-4 items-center justify-center rounded-sm bg-success-ink/15">📋</span> 总结
-                          </div>
-                          <Markdown>{m.content}</Markdown>
-                        </div>
-                      );
-                    }
-                    const processTurn = processTurnForMessage(m);
-                    if (processTurn) renderedTurnKeys.add(processTurn.key);
-                    const isUser = m.role === "user";
-                    const time = new Date(m.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
-                    const prev = visibleMessages[idx - 1];
-                    const newDay = !prev || dayLabel(prev.createdAt) !== dayLabel(m.createdAt);
-                    return (
-                      <Fragment key={m.id}>
-                        {processTurn && <DshTurnProcess turn={processTurn} />}
-                        {newDay && (
-                          <div className="flex items-center gap-3 py-2">
-                            <div className="h-px flex-1 bg-hairline/70" />
-                            <span className="text-fine font-semibold tracking-wide text-ink-40">
-                              {dayLabel(m.createdAt)} {time}
-                            </span>
-                            <div className="h-px flex-1 bg-hairline/70" />
-                          </div>
-                        )}
-                        <div className={cn("flex items-start gap-3", isUser && "flex-row-reverse")}>
-                          <Avatar name={isUser ? "我" : m.sender} size="sm" className="mt-1" />
-                          <div className={cn("max-w-[76%]", isUser && "text-right")}>
-                            <div className={cn("mb-1 flex items-baseline gap-1.5 text-fine text-ink-40", isUser && "justify-end")}>
-                              <span className="font-semibold">{isUser ? "我" : m.sender}</span>
-                              <span className="text-ink-40/60">{time}</span>
-                            </div>
-                            <div
-                              className={cn(
-                                "inline-block rounded-lg px-4 py-2.5 text-left text-caption",
-                                isUser
-                                  ? "bg-primary text-white rounded-lg rounded-tr-sm"
-                                  : "bg-white text-ink rounded-lg rounded-tl-sm"
-                              )}
-                            >
-                              <Markdown names={personaNames} tone={isUser ? "dark" : "light"}>
-                                {m.content}
-                              </Markdown>
-                              {m.streaming && (
-                                <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-ink-60 align-middle" />
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </Fragment>
-                    );
-                  })
-                )}
-                {processTurns.filter((turn) => !renderedTurnKeys.has(turn.key)).map((turn) => (
-                  <DshTurnProcess key={turn.key} turn={turn} />
-                ))}
-                {running && processTurns.length === 0 && (
-                  <div className="flex items-center gap-2 py-1 text-fine text-ink-40">
-                    <PaperPlaneTilt size={14} className="animate-pulse" />
-                    {isOne ? "正在启动 DSH 会话…" : "讨论正在启动…"}
-                  </div>
-                )}
-              </div>
 
-              {/* 底部输入条（独立一层）：圆角卡片，左右留白 */}
-              <div className="bg-parchment px-4 pb-3.5 pt-2">
-                {pendingApproval && (
-                  <DshApprovalPanel
-                    discussionId={current.id}
-                    approval={pendingApproval}
-                    toolInput={approvalToolInput}
-                  />
-                )}
-                <div className="rounded-lg border border-hairline bg-white transition-[border-color,box-shadow] focus-within:border-primary/45 focus-within:ring-2 focus-within:ring-primary/10">
-                  <div className="relative flex items-end gap-2 p-2">
-                    {!isOne && mentionQuery !== null && mentionOptions.length > 0 && (
-                      <div className="absolute bottom-full left-0 right-0 mb-2 overflow-hidden rounded-lg border border-hairline bg-white shadow-float">
-                        <div className="border-b border-divider-soft px-3 py-1.5 text-fine text-ink-40">选择要 @ 的成员</div>
-                        <div className="max-h-44 overflow-auto py-1">
-                          {mentionOptions.map((p) => (
-                            <button
-                              key={p.id}
-                              type="button"
-                              onMouseDown={(e) => e.preventDefault()}
-                              onClick={() => insertMention(p.name)}
-                              className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-parchment"
-                            >
-                              <Avatar name={p.name} size="sm" />
-                              <div>
-                                <div className="text-caption font-semibold text-ink">{p.name}</div>
-                                <div className="text-fine text-ink-40">{TYPE_LABEL[p.perspectiveType] ?? p.perspectiveType}</div>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    <input
-                      ref={steerRef}
-                      value={steer}
-                      disabled={Boolean(pendingApproval)}
-                      onChange={handleSteerChange}
-                      placeholder={
-                        followUp
-                          ? `向 ${followUp.name} 追问（带上这场讨论）…`
-                          : isOne
-                          ? `向 ${current.personas?.[0]?.name ?? "专家"} 提问…`
-                          : "插一句，用 @ 点名：「@乔布斯 如果成本砍半呢？」"
-                      }
-                      onKeyDown={(e) => {
-                        if (followUp) {
-                          if (e.key === "Escape") { setFollowUp(null); e.preventDefault(); return; }
-                          if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendSteer(); }
-                          return;
-                        }
-                        if (!isOne && mentionQuery !== null && mentionOptions.length > 0) {
-                          if (e.key === "Escape") { setMentionQuery(null); e.preventDefault(); return; }
-                          if (e.key === "Enter") { e.preventDefault(); insertMention(mentionOptions[0].name); return; }
-                        } else if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault();
-                          sendSteer();
-                        }
-                      }}
-                      className="h-10 flex-1 bg-transparent px-1 text-caption text-ink outline-none placeholder:text-ink-40 focus-visible:outline-none focus-visible:ring-0"
-                    />
-                    <button
-                      type="button"
-                      onClick={sendSteer}
-                      disabled={sending || Boolean(pendingApproval) || !steer.trim()}
-                      aria-label={isOne ? "发送" : "插话"}
-                      title={isOne ? "发送" : "插话"}
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-white transition-all duration-150 hover:bg-primary-focus active:scale-95 disabled:opacity-45"
-                    >
-                      {sending ? <SpinnerGap size={17} weight="bold" className="animate-spin" /> : <ArrowUp size={17} weight="bold" />}
-                    </button>
-                  </div>
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-t border-divider-soft px-3 py-1.5 text-fine text-ink-40">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <span>Enter 发送 · Shift+Enter 换行</span>
-                      <DiscussionPermissionControl
-                        discussionId={current.id}
-                        permissionMode={current.permissionMode}
-                        approvalPolicy={current.approvalPolicy}
-                        busy={running || Boolean(pendingApproval)}
-                        onUpdated={(value) => setCurrent((prev) => (prev ? { ...prev, ...value } : prev))}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setPanelOpen((o) => !o)}
-                        aria-expanded={panelOpen}
-                        aria-controls="discussion-side-panel"
-                        className="flex items-center gap-1 text-primary transition-colors hover:text-primary-hover lg:hidden"
-                      >
-                        <UsersThree size={13} />
-                        {panelOpen ? "收起面板" : "参与人 / 产物"}
-                      </button>
-                    </div>
-                    <span className="flex items-center gap-1.5">
-                      <span className="h-1.5 w-1.5 rounded-full bg-success" /> 专家在线
-                    </span>
-                  </div>
-                </div>
+        <div className="flex h-full min-h-0 flex-col">
+          <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-hairline py-3">
+            <div className="min-w-0 flex-1">
+              <h1 className="truncate text-body font-semibold" title={current.brief}>{current.brief}</h1>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-fine text-ink-48" role="status">
+                <span>{current.personas.length} 位专家</span><span>·</span><span>{discussionStatus}</span>
+                {!isOne && <span>· {roundLabel}</span>}
               </div>
             </div>
-
-            {/* 右侧：标题 + 参与人 + 产物/引用。≤1024px 浮为抽屉，由底部输入条的按钮开合 */}
-            <aside
-              id="discussion-side-panel"
-              className={cn(
-                "flex w-[320px] max-w-[85vw] shrink-0 flex-col border-l border-hairline bg-white",
-                "max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-40 max-lg:shadow-overlay",
-                panelOpen ? "max-lg:flex" : "max-lg:hidden"
-              )}
-            >
-              {/* 上：标题 + id + 总结 */}
-              <div className="border-b border-divider-soft bg-white px-4 py-3">
-                <div className="flex items-center gap-2">
-                  <span
-                    className={cn(
-                      "shrink-0 rounded-full px-2 py-0.5 text-fine font-semibold",
-                      isOne ? "bg-primary/10 text-primary" : "bg-parchment text-ink-60"
-                    )}
-                  >
-                    {isOne ? "1 对 1" : "多人"}
-                  </span>
-                  <div className="truncate text-caption font-semibold tracking-[-0.2px] text-ink">
-                    {isOne ? `${current.personas?.[0]?.name ?? "专家"}` : `讨论：${current.brief.slice(0, 30)}…`}
-                  </div>
-                </div>
-                <div className="mt-1 flex items-center justify-between gap-2">
-                  <div className="flex min-w-0 items-center gap-2 text-fine text-ink-48">
-                    <span className="flex items-center gap-1.5">
-                      <span
-                        className={cn(
-                          "h-1.5 w-1.5 rounded-full",
-                          current.status === "running" || running ? "bg-success" : current.status === "done" ? "bg-primary/50" : "bg-ink-40"
-                        )}
-                      />
-                      {current.status === "done" && "已结束"}
-                      {current.status === "failed" && "失败"}
-                      {running && !isOne && "讨论中"}
-                      {isOne && (running ? "DSH 会话运行中" : "一对一交流")}
-                      {!isOne && !running && `${current.rounds} 轮`}
-                    </span>
-                    <CopyId id={current.shortId} />
-                  </div>
-                  <Button variant="primary" size="sm" onClick={summarize} disabled={summarizing || visibleMessages.length === 0}>
-                    {summarizing ? "总结中…" : "总结"}
-                  </Button>
-                </div>
-              </div>
-
-              {/* 中：参与人 */}
-              <div className="flex min-h-0 flex-[1.1] flex-col">
-                <div className="flex items-center gap-2 border-b border-divider-soft bg-pearl px-4 py-3 text-fine font-semibold uppercase tracking-wide text-ink-40">
-                  <UsersThree size={14} /> {isOne ? "交流对象" : "参与人"}（{current.personas?.length ?? 0}）
-                </div>
-                <div className="flex-1 space-y-1 overflow-y-auto bg-pearl p-2">
-                  {(current.personas ?? []).map((p) => (
-                    <div key={p.id} className="flex items-center gap-2.5 rounded-sm px-3 py-2 hover:bg-parchment/70">
-                      <Avatar name={p.name} size="sm" />
-                      <div className="min-w-0">
-                        <div className="truncate text-caption font-semibold text-ink">{p.name}</div>
-                        <div className="text-fine text-ink-40">{TYPE_LABEL[p.perspectiveType] ?? p.perspectiveType}</div>
-                      </div>
-                      {canFollowUp && (
-                        <button
-                          onClick={() => {
-                            setFollowUp({ personaId: p.id, name: p.name });
-                            setMentionQuery(null);
-                            steerRef.current?.focus();
-                          }}
-                          className={cn(
-                            "ml-auto shrink-0 rounded-full px-2.5 py-1 text-fine transition-colors",
-                            followUp?.personaId === p.id
-                              ? "bg-primary text-white"
-                              : "border border-hairline text-ink-60 hover:border-primary/40 hover:text-primary"
-                          )}
-                        >
-                          {followUp?.personaId === p.id ? "追问中…" : "追问"}
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                  <div className="flex items-center gap-2.5 rounded-sm px-3 py-2 hover:bg-parchment/70">
-                    <Avatar name="我" size="sm" />
-                    <div>
-                      <div className="text-caption font-semibold text-ink">我</div>
-                      <div className="text-fine text-ink-40">主持人 · {isOne ? "提问" : "可插话"}</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* 下：产物与引用 */}
-              <div className="flex min-h-0 flex-[1] flex-col border-t border-divider-soft">
-                <div className="flex items-center gap-2 border-b border-divider-soft bg-pearl px-4 py-3 text-fine font-semibold uppercase tracking-wide text-ink-40">
-                  <FileText size={14} /> 产物与引用
-                </div>
-                <div className="flex-1 space-y-3 overflow-y-auto bg-parchment/40 p-3">
-                  {current.attachmentName && (
-                    <div className="flex items-center gap-2.5 rounded-sm border border-hairline bg-white p-2.5">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm bg-primary/10 text-primary">
-                        <FilePdf size={16} weight="duotone" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-caption font-semibold text-ink">{current.attachmentName}</div>
-                        <div className="text-fine text-ink-48">已读取 {current.attachmentCharCount ?? 0} 字{current.attachmentTruncated ? "（截取）" : ""}</div>
-                      </div>
-                    </div>
-                  )}
-                  {current.artifacts && current.artifacts.length > 0 ? (
-                    <div className="space-y-2.5">
-                      {current.artifacts.map((a) => (
-                        <div key={a.id} className="rounded-sm border border-hairline bg-white p-2.5">
-                          <div className="truncate text-caption font-semibold text-ink">{a.title}</div>
-                          {a.summary && (
-                            <div className="mt-0.5 line-clamp-2 text-fine leading-[1.5] text-ink-48">{a.summary}</div>
-                          )}
-                          <div className="mt-1.5 flex items-center gap-3 text-fine">
-                            <button onClick={() => setViewArtifact(a)} className="font-semibold text-primary hover:underline">查看</button>
-                            <button onClick={() => downloadArtifact(a)} className="text-ink-60 hover:text-primary">下载 md</button>
-                          </div>
+            <div className="flex items-center gap-1">
+              <button type="button" className="min-h-11 rounded-sm px-3 text-caption hover:bg-white" aria-expanded={panelOpen} aria-controls="discussion-side-panel" onClick={() => setPanelOpen(!panelOpen)}>{panelOpen ? "收起详情" : "成员与资料"}</button>
+              <button type="button" className="min-h-11 rounded-sm px-3 text-caption hover:bg-white" onClick={() => setSettingsOpen(true)}>设置</button>
+              <Button size="sm" onClick={summarize} disabled={summarizing || visibleMessages.length === 0}>{summarizing ? "生成中…" : running ? "阶段总结" : "生成总结"}</Button>
+            </div>
+          </header>
+          <div className="relative flex min-h-0 flex-1">
+            <div className="relative flex min-w-0 flex-1 flex-col">
+              {error && <div role="alert" className="mx-2 mt-3 rounded-md border border-error/20 bg-error/5 px-4 py-3 text-caption text-error"><strong>本次操作未完成</strong><p className="mt-1 break-words">{error}</p></div>}
+              {eventStream.streamError && <div role="status" className="mx-2 mt-2 rounded-md bg-warning/10 px-4 py-2 text-caption">{eventStream.streamError}</div>}
+              <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto" onScroll={(event) => {
+                const el = event.currentTarget;
+                followScrollRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+                if (followScrollRef.current) setHasNewUpdates(false);
+              }}>
+                <div className="mx-auto max-w-[860px] space-y-6 px-2 py-6 sm:px-5">
+                  {visibleMessages.length === 0 && processTurns.length === 0 && <div className="py-16 text-center text-caption text-ink-48">{running ? "正在准备讨论，专家回复将在这里显示…" : "提出你的问题，开始交流。"}</div>}
+                  {visibleMessages.map((message, index) => {
+                    if (message.role === "summary") return <article key={message.id} className="rounded-lg border border-primary/15 bg-white p-5 text-base"><div className="mb-3 text-caption font-semibold text-primary">讨论总结</div><Markdown>{message.content}</Markdown><CopyText text={message.content} label="复制总结" /></article>;
+                    const processKey = processAssignments.get(message.id);
+                    const process = processKey ? processTurnsByKey.get(processKey) : undefined;
+                    const isUser = message.role === "user";
+                    const previous = visibleMessages[index - 1];
+                    return <Fragment key={message.id}>
+                      {(!previous || dayLabel(previous.createdAt) !== dayLabel(message.createdAt)) && <div className="py-2 text-center text-fine text-ink-48">{dayLabel(message.createdAt)}</div>}
+                      <article className={cn("min-w-0", isUser && "ml-auto max-w-[90%] sm:max-w-[80%]")}>
+                        {process ? <DshTurnProcess turn={process} name={message.sender} /> : <div className={cn("mb-2 flex items-center gap-2 text-caption", isUser && "justify-end")}><Avatar name={isUser ? "我" : message.sender} size="sm" /><span className="font-semibold">{isUser ? "我" : message.sender}</span><time className="text-fine text-ink-48" dateTime={message.createdAt}>{new Date(message.createdAt).toLocaleTimeString("zh-CN", {hour: "2-digit", minute: "2-digit"})}</time></div>}
+                        <div className={cn("mt-2 rounded-lg px-4 py-3 text-base leading-7 sm:px-5 sm:py-4", isUser ? "bg-primary text-white" : "bg-white text-ink")}>
+                          <Markdown names={personaNames} tone={isUser ? "dark" : "light"}>{message.content}</Markdown>
+                          {message.streaming && <span className="text-caption text-ink-48">正在回答…</span>}
                         </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2 rounded-lg border border-dashed border-hairline bg-parchment/50 px-3 py-3 text-fine text-ink-48">
-                      <FileText size={14} className="text-ink-40" /> 点「总结」生成 md 报告
-                    </div>
-                  )}
+                        <div className={cn("flex items-center gap-1", isUser && "justify-end")}><CopyText text={message.content} label="复制发言" />{!isUser && <button type="button" onClick={() => quoteMessage(message)} className="min-h-11 rounded-sm px-2 text-fine text-ink-48 hover:bg-white hover:text-primary">引用追问</button>}</div>
+                      </article>
+                    </Fragment>;
+                  })}
+                  {processTurns.filter((turn) => !assignedTurnKeys.has(turn.key)).map((turn) => <DshTurnProcess key={turn.key} turn={turn} name={nameForSession(turn.sessionId)} />)}
                 </div>
               </div>
-            </aside>
+              {hasNewUpdates && <button type="button" className="absolute bottom-48 left-1/2 z-10 min-h-11 -translate-x-1/2 rounded-full border border-hairline bg-white px-4 text-caption text-primary shadow-float" onClick={() => { followScrollRef.current = true; setHasNewUpdates(false); if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }}>有新回复 ↓</button>}
+              <div className="mx-auto w-full max-w-[860px] shrink-0 px-2 pb-4 pt-2 sm:px-5">
+                {pendingApproval && <DshApprovalPanel discussionId={current.id} approval={pendingApproval} toolInput={approvalToolInput} />}
+                <div className="rounded-lg border border-hairline bg-white p-3 focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/10">
+                  <div className="mb-1 flex items-center justify-between text-fine text-ink-48"><span>{followUp ? "追问 " + followUp.name : isOne ? "发送给 " + current.personas[0].name : "发送给所有人 · @ 点名"}</span>{followUp && <button type="button" onClick={() => setFollowUp(null)} className="min-h-11 px-2 text-primary">取消追问</button>}</div>
+                  <div className="relative flex items-end gap-2">
+                    {!isOne && mentionQuery !== null && mentionOptions.length > 0 && <div className="absolute bottom-full left-0 z-20 mb-2 max-h-52 w-full overflow-y-auto rounded-md border border-hairline bg-white p-1 shadow-float" aria-label="选择提及成员">{mentionOptions.map((p) => <button key={p.id} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => insertMention(p.name)} className="flex min-h-11 w-full items-center gap-2 rounded-sm px-3 text-left text-caption hover:bg-parchment"><Avatar name={p.name} size="sm" />{p.name}</button>)}</div>}
+                    <textarea ref={steerRef} rows={2} aria-label="讨论消息" aria-describedby="discussion-send-hint" value={steer} onChange={handleSteerChange} placeholder="写下你的问题或观点…" onKeyDown={(event) => {
+                      if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+                      if (event.key === "Escape") { setMentionQuery(null); setFollowUp(null); return; }
+                      if (event.key !== "Enter" || event.shiftKey) return;
+                      event.preventDefault();
+                      if (!followUp && !isOne && mentionQuery !== null && mentionOptions.length) insertMention(mentionOptions[0].name);
+                      else void sendSteer();
+                    }} className="max-h-44 min-h-14 min-w-0 flex-1 resize-none bg-transparent px-1 py-1 text-base leading-7 text-ink outline-none placeholder:text-ink-48 focus-visible:outline-none" />
+                    <button type="button" onClick={sendSteer} disabled={sending || Boolean(pendingApproval) || !steer.trim()} aria-label="发送消息" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-white hover:bg-primary-hover disabled:bg-parchment disabled:text-ink-48">{sending ? <SpinnerGap size={18} className="animate-spin" /> : <ArrowUp size={20} weight="bold" />}</button>
+                  </div>
+                  <div id="discussion-send-hint" className="mt-2 border-t border-divider-soft pt-2 text-fine text-ink-48" role="status">{pendingApproval ? "请先处理上方审批；可以继续编辑草稿。" : sending ? "正在等待回复；可以提前写下一条。" : "Enter 发送 · Shift+Enter 换行"}</div>
+                </div>
+                <div className="mt-2 flex justify-between text-fine text-ink-48"><span>{eventStream.reconnecting ? "正在重新连接…" : eventStream.connected ? "实时同步已连接" : "正在连接…"}</span><span>AI 模拟视角</span></div>
+              </div>
+            </div>
+            {panelOpen && <>
+              <button type="button" aria-label="关闭讨论详情" onClick={() => setPanelOpen(false)} className="absolute inset-0 z-20 bg-black/20 lg:hidden" />
+              <aside id="discussion-side-panel" aria-label="讨论详情" className="absolute inset-y-0 right-0 z-30 w-[300px] max-w-[90vw] overflow-y-auto border-l border-hairline bg-white p-4 lg:static lg:shrink-0" onKeyDown={(e) => { if (e.key === "Escape") setPanelOpen(false); }}>
+                <div className="flex items-center justify-between"><span className="text-caption font-semibold">讨论详情</span><button type="button" aria-label="收起详情面板" onClick={() => setPanelOpen(false)} className="flex h-11 w-11 items-center justify-center rounded-sm hover:bg-parchment"><X size={18} /></button></div>
+                <div className="mb-4"><CopyId id={current.shortId} /></div>
+                <div className="mb-4 flex rounded-md bg-parchment p-1">{(["members", "files"] as const).map((tab) => <button type="button" key={tab} aria-pressed={detailTab === tab} onClick={() => setDetailTab(tab)} className={cn("min-h-11 flex-1 rounded-sm text-caption", detailTab === tab && "bg-white font-semibold text-primary")}>{tab === "members" ? "成员" : "资料与总结"}</button>)}</div>
+                {detailTab === "members" ? <div className="space-y-4">{current.personas.map((p) => <div key={p.id} className="flex items-start gap-3"><Avatar name={p.name} size="sm" /><div className="min-w-0 flex-1"><div className="text-caption font-semibold">{p.name}</div><p className="mt-1 text-fine text-ink-48">{participantStatus(p.id)}</p>{canFollowUp && <button type="button" className="min-h-11 text-fine text-primary" onClick={() => { setFollowUp({personaId:p.id,name:p.name}); setPanelOpen(false); steerRef.current?.focus(); }}>向他追问</button>}</div></div>)}<p className="border-t border-divider-soft pt-3 text-fine text-ink-48">你是这场讨论的主持人，可以随时写下问题。</p></div> : <div className="space-y-3">{current.attachmentName && <div className="rounded-md bg-parchment p-3 text-caption"><FileText size={18} /><p className="mt-2 break-words">{current.attachmentName}</p><p className="mt-1 text-fine text-ink-48">已读取 {current.attachmentCharCount ?? 0} 字</p></div>}{current.artifacts?.map((artifact) => <article key={artifact.id} className="rounded-md border border-hairline p-3"><h2 className="text-caption font-semibold">{artifact.title}</h2><p className="mt-1 text-fine text-ink-48">{artifact.summary}</p><div className="mt-2 flex gap-3"><button type="button" onClick={() => setViewArtifact(artifact)} className="min-h-11 text-caption text-primary">阅读</button><button type="button" onClick={() => downloadArtifact(artifact)} className="min-h-11 text-caption text-ink-48">下载 Markdown</button></div></article>)}{!current.attachmentName && !current.artifacts?.length && <p className="py-4 text-caption text-ink-48">还没有资料。生成的讨论总结会保存在这里。</p>}</div>}
+              </aside>
+            </>}
           </div>
+        </div>
       )}
 
       {/* 产物预览：统一走 Modal 基元（role=dialog / Escape / 焦点陷阱） */}
       <Modal
         open={Boolean(viewArtifact)}
-        onClose={() => setViewArtifact(null)}
+        onClose={closeArtifact}
         title={viewArtifact?.title ?? ""}
         description={
           viewArtifact
@@ -1031,10 +825,12 @@ function DiscussionsContent() {
         }
       >
         <div className="bg-parchment/30 p-5">
-          <pre className="whitespace-pre-wrap text-caption leading-[1.7] text-ink">
-            {viewArtifact?.content}
-          </pre>
+          <Markdown className="text-base leading-7">{viewArtifact?.content ?? ""}</Markdown>
         </div>
+      </Modal>
+
+      <Modal open={settingsOpen} onClose={closeSettings} title="讨论设置" description="工具权限与审批策略">
+        <div className="p-5">{current && <DiscussionPermissionControl discussionId={current.id} permissionMode={current.permissionMode} approvalPolicy={current.approvalPolicy} busy={running || Boolean(pendingApproval)} onUpdated={(value) => setCurrent((prev) => prev ? {...prev, ...value} : prev)} />}</div>
       </Modal>
 
       {/* 隐藏文件输入（引用文件） */}

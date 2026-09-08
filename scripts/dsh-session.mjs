@@ -48,11 +48,22 @@ function asMessage(error) {
   return String(error?.message ?? error).slice(0, 500);
 }
 
-function emptyReplyDiagnostic(result) {
+/** Keep turn diagnostics useful without exposing credentials or multiline payloads. */
+function diagnosticText(value) {
+  const raw = String(value ?? "").replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!raw) return "";
+  return raw
+    .replace(/((?:api[-_ ]?key|authorization|token|password)\s*[:=]\s*)[^\s,;]+/gi, "$1[redacted]")
+    .replace(/\b(?:sk|ds)[_-][a-z0-9_-]{12,}\b/gi, "[redacted]")
+    .slice(0, 240);
+}
+
+export function emptyReplyDiagnostic(result) {
   const events = Array.isArray(result?.events) ? result.events : [];
   const counts = new Map();
   const assistantBlockTypes = new Set();
   const failureCodes = new Set();
+  const failureDetails = new Set();
   for (const event of events) {
     if (!event || typeof event !== "object") continue;
     const type = typeof event.type === "string" ? event.type : "unknown";
@@ -63,6 +74,8 @@ function emptyReplyDiagnostic(result) {
       const code = typeof failure.code === "string" ? failure.code : "unknown";
       const status = typeof failure.status === "number" ? `/${failure.status}` : "";
       failureCodes.add(`${code}${status}`);
+      const message = diagnosticText(failure.message);
+      if (message) failureDetails.add(`llm:${code}${status}:${message}`);
     }
     if (data && type === "turn/end" && data.reason && typeof data.reason === "object") {
       const reason = data.reason;
@@ -71,6 +84,8 @@ function emptyReplyDiagnostic(result) {
         const code = typeof error.code === "string" ? error.code : "unknown";
         const status = typeof error.status === "number" ? `/${error.status}` : "";
         failureCodes.add(`turn:${code}${status}`);
+        const message = diagnosticText(error.message);
+        if (message) failureDetails.add(`turn:${code}${status}:${message}`);
       }
     }
     if (type !== "assistant/message" || !event.data || typeof event.data !== "object") continue;
@@ -91,7 +106,8 @@ function emptyReplyDiagnostic(result) {
     .join(",") || "none";
   const blockSummary = [...assistantBlockTypes].sort().join(",") || "none";
   const failureSummary = [...failureCodes].sort().join(",") || "none";
-  return `DSH runner 返回空回复（events=${eventSummary}; assistantBlocks=${blockSummary}; failures=${failureSummary}）`;
+  const detailSummary = [...failureDetails].sort().join(" | ") || "none";
+  return `DSH runner 返回空回复（events=${eventSummary}; assistantBlocks=${blockSummary}; failures=${failureSummary}; failureDetails=${detailSummary}）`;
 }
 
 function classify(error, stage) {

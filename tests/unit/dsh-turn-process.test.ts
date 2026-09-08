@@ -52,6 +52,12 @@ describe("dsh turn-process error mapping", () => {
 });
 
 describe("DshTurnProcess expansion", () => {
+  it("keeps routine processing compact and exposes failures", () => {
+    expect(turnProcess.resolveTurnExpanded("running", null, false)).toBe(false);
+    expect(turnProcess.resolveTurnExpanded("completed", null, false)).toBe(false);
+    expect(turnProcess.resolveTurnExpanded("failed", null, false)).toBe(true);
+    expect(turnProcess.resolveTurnExpanded("running", true, false)).toBe(true);
+  });
   it("honors a manual collapse while the turn is still running", () => {
     expect(turnProcess).toHaveProperty("resolveTurnExpanded");
 

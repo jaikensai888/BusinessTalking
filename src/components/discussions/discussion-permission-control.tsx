@@ -48,7 +48,7 @@ export function DiscussionPermissionControl({
   const disabled = busy || saving;
   return (
     <div className="flex flex-wrap items-center gap-2 text-fine text-ink-48" aria-label="讨论权限">
-      <span className="inline-flex items-center gap-1 rounded-full bg-parchment px-2.5 py-1" title="P0 期间仅支持只读运行时">
+      <span className="inline-flex items-center gap-1 rounded-full bg-parchment px-2.5 py-1" title="工具仅可读取资料，不可修改文件">
         <LockKey size={13} /> {permissionMode === "read-only" ? "只读" : permissionMode}
       </span>
       <span className="text-ink-40">审批</span>
@@ -73,7 +73,7 @@ export function DiscussionPermissionControl({
         </button>
       </div>
       {saving && <SpinnerGap size={13} className="animate-spin text-primary" aria-label="保存中" />}
-      {busy && !saving && <span className="text-ink-40">下一回合生效</span>}
+      {busy && !saving && <span className="text-ink-48">当前回合结束后可修改</span>}
       {localError && <span className="text-error">{localError}</span>}
     </div>
   );
