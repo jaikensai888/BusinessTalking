@@ -923,7 +923,7 @@ function DiscussionsContent() {
                     </span>
                     <CopyId id={current.shortId} />
                   </div>
-                  <Button variant="dark" size="sm" onClick={summarize} disabled={summarizing || visibleMessages.length === 0}>
+                  <Button variant="primary" size="sm" onClick={summarize} disabled={summarizing || visibleMessages.length === 0}>
                     {summarizing ? "总结中…" : "总结"}
                   </Button>
                 </div>

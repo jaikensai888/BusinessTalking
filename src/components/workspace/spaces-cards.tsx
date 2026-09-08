@@ -133,7 +133,7 @@ export function SpacesCards({
     return (
       <div className="grid gap-5 [grid-template-columns:repeat(auto-fill,minmax(250px,1fr))]">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="h-40 animate-pulse rounded-lg bg-white" />
+          <div key={i} className="h-40 animate-pulse rounded-lg bg-pearl" />
         ))}
       </div>
     );
@@ -144,7 +144,7 @@ export function SpacesCards({
       // 空态用白卡片：浅色画布与暗色瓦片上都能成立
       <button
         onClick={onNew}
-        className="flex w-full flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed border-hairline bg-white px-8 py-16 text-center transition-colors hover:border-primary/40 hover:bg-pearl"
+        className="flex w-full flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed border-hairline bg-pearl/40 px-8 py-16 text-center transition-colors hover:border-primary/40 hover:bg-pearl"
       >
         <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-primary/10 text-primary">
           <ArrowRight size={26} weight="bold" />
@@ -159,7 +159,7 @@ export function SpacesCards({
 
   if (viewItems.length === 0) {
     return (
-      <div className="flex w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-hairline bg-white px-8 py-14 text-center">
+      <div className="flex w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-hairline bg-pearl/40 px-8 py-14 text-center">
         <p className="text-caption font-semibold text-ink">没有匹配的会话</p>
         <p className="text-caption text-ink-48">换个关键词，或清除搜索条件试试。</p>
       </div>

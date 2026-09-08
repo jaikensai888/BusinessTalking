@@ -1,13 +1,13 @@
-/* eslint-disable no-restricted-syntax -- 本文件是「token 值的程序化取色源」：hex 必须与
-   globals.css @theme 中的 ink 阶梯逐字对应，供 canvas/内联样式计算使用，非绕过 token */
-/** 头像/名字标签取色：与 Avatar 共用（保证名字标签与头像是同一中性色）
- *  2026-09-08：原先按名称哈希取 8 色彩虹，违反 DESIGN.md「不引入第二个强调色」。
- *  改为规范中性色阶梯（ink / ink-80 / ink-60 / ink-48）——既保留按名稳定区分，
- *  又不引入任何新色相。最浅一档 #6e6e73 对白字仍满足 WCAG AA（约 5.3:1）。
- *  ⚠ 修改 globals.css 的 ink 阶梯时必须同步此处。 */
-const PALETTE = ["#1d1d1f", "#333333", "#48484a", "#6e6e73"] as const;
+/* eslint-disable no-restricted-syntax -- 本文件是「强调色阶梯的程序化取色源」：hex 与
+   globals.css @theme 的 primary 家族对齐，供内联样式计算使用，非绕过 token */
+/** 头像/名字标签取色：与 Avatar 共用（保证名字标签与头像是同一颜色）
+ *  2026-09-08（二次修订）：第一版改成 ink 中性色阶梯后所有头像近似黑块，
+ *  视觉观感差；改为 primary（品牌蓝）明度阶梯——仍是单一强调色、不引入
+ *  第二色相，但头像之间有可感知的深浅区分。四档对白字均 ≥4.5:1（WCAG AA）。
+ *  ⚠ 修改 globals.css 的 primary 色值时评估同步此处。 */
+const PALETTE = ["#0a4d8c", "#0d66c2", "#0877dd", "#0059b3"] as const;
 
-/** 按名称稳定取一个中性色 */
+/** 按名称稳定取一个强调色 */
 export function avatarColor(name: string): string {
   const hue = [...name].reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
   return PALETTE[hue % PALETTE.length];

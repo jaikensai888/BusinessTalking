@@ -541,14 +541,13 @@ function WorkspaceContent() {
         </div>
       </section>
 
-      {/* 暗色瓦片（DESIGN.md product-tile-dark）：与上方浅色 hero 形成明暗节奏，
-          色彩变化本身就是分隔线；白卡片浮于深底 = 规范唯一允许的产品投影场景 */}
-      <section className="mt-6 bg-tile-1 py-14">
+      {/* 会话空间：浅色画布上的白卡片流（用户反馈暗色瓦片过重，回退浅色） */}
+      <section className="mt-6 py-14">
         <div className="mx-auto max-w-[1440px] px-4 sm:px-6">
           <div className="mb-5 flex items-center justify-between">
-            <h2 className="text-tagline font-semibold text-white">会话空间</h2>
+            <h2 className="text-tagline font-semibold text-ink">会话空间</h2>
             <button
-              className="text-caption text-primary-on-dark transition-colors hover:text-white hover:underline"
+              className="text-caption text-primary transition-colors hover:text-primary-hover hover:underline"
               onClick={() => router.push("/spaces")}
             >
               全部空间 ›
