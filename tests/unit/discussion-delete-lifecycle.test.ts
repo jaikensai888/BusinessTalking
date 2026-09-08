@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   participantUpdateMany: vi.fn(),
   participantFindMany: vi.fn(),
   closeDiscussion: vi.fn(),
+  capabilityGrantDeleteMany: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -23,6 +24,7 @@ vi.mock("@/lib/db", () => ({
       updateMany: mocks.participantUpdateMany,
       findMany: mocks.participantFindMany,
     },
+    discussionCapabilityGrant: { deleteMany: mocks.capabilityGrantDeleteMany },
   },
 }));
 
@@ -138,6 +140,7 @@ beforeEach(() => {
   mocks.participantUpdateMany.mockResolvedValue({ count: 1 });
   mocks.participantFindMany.mockResolvedValue([]);
   mocks.closeDiscussion.mockResolvedValue(undefined);
+  mocks.capabilityGrantDeleteMany.mockResolvedValue({ count: 1 });
 });
 
 afterEach(() => {
@@ -182,6 +185,7 @@ describe("hard discussion deletion", () => {
     });
     expect(mocks.closeDiscussion).toHaveBeenCalledWith("d1", { reason: "delete" });
     expect(mocks.discussionDelete).toHaveBeenCalledWith({ where: { id: "d1" } });
+    expect(mocks.capabilityGrantDeleteMany).toHaveBeenCalledWith({ where: { discussionId: "d1" } });
 
     expect(fs.existsSync(sessionDir(tempRoot, participantSessionId))).toBe(false);
     expect(fs.existsSync(sessionDir(tempRoot, moderatorSessionId))).toBe(false);

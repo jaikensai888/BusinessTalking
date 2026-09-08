@@ -34,7 +34,7 @@ export default function EditSkillPage() {
 
   if (error) {
     return (
-      <div className="px-6 py-10 text-[14px] text-error">
+      <div className="px-6 py-10 text-caption text-error">
         {error}
         <button className="ml-4 text-primary underline" onClick={() => router.push("/skills")}>
           返回 Skill 库
@@ -45,11 +45,11 @@ export default function EditSkillPage() {
 
   return (
     <div className="px-6 py-10">
-      <h1 className="text-[34px] font-semibold leading-[1.47] tracking-[-0.374px] mb-6">编辑 Skill</h1>
+      <h1 className="text-display-md font-semibold leading-[1.47] tracking-[-0.374px] mb-6">编辑 Skill</h1>
       {initial === null ? (
         <div className="h-40 bg-pearl border border-hairline rounded-lg animate-pulse" />
       ) : initial.isBuiltin ? (
-        <div className="text-[14px] text-ink-48">内置 skill 不可编辑。</div>
+        <div className="text-caption text-ink-48">内置 skill 不可编辑。</div>
       ) : (
         <SkillForm
           skillId={id}

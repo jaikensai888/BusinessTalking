@@ -21,11 +21,11 @@ export async function POST(
     return Response.json({ error: "invalid_json" }, { status: 400 });
   }
   if (!isRecord(body) || Object.keys(body).length !== 1 ||
-    (body.outcome !== "allowed-once" && body.outcome !== "allowed-session" && body.outcome !== "rejected")) {
-    return Response.json({ error: "outcome must be allowed-once, allowed-session, or rejected" }, { status: 400 });
+    (body.outcome !== "allowed-once" && body.outcome !== "allowed-discussion" && body.outcome !== "rejected-discussion")) {
+    return Response.json({ error: "outcome must be allowed-once, allowed-discussion, or rejected-discussion" }, { status: 400 });
   }
   const outcome = body.outcome as UserApprovalOutcome;
-  const status = getDiscussionApprovalBridge().decide(id, approvalId, outcome);
+  const status = await getDiscussionApprovalBridge().decide(id, approvalId, outcome);
   if (status === "not-found") return Response.json({ error: "approval_not_found" }, { status: 404 });
   if (status === "conflict") return Response.json({ error: "approval_already_decided" }, { status: 409 });
   return Response.json({ status, approvalId, outcome });

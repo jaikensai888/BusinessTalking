@@ -23,11 +23,11 @@ export function CopyId({ id, className }: { id?: string | null; className?: stri
       onClick={copy}
       title="点击复制编号"
       className={cn(
-        "inline-flex items-center gap-1 text-[11px] text-ink-40 transition-colors hover:text-ink",
+        "inline-flex items-center gap-1 text-fine text-ink-40 transition-colors hover:text-ink",
         className
       )}
     >
-      {copied ? <Check size={12} className="text-[#1f7a43]" /> : <Copy size={12} />}
+      {copied ? <Check size={12} className="text-success-ink" /> : <Copy size={12} />}
       <span>#{id}</span>
     </button>
   );

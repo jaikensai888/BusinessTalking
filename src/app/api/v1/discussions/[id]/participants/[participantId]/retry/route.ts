@@ -3,6 +3,7 @@ import { err, ok } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { ensurePersonaSession } from "@/lib/discussion/dsh-service";
 import { runDiscussionDshTurn } from "@/lib/discussion/run-dsh-turn";
+import { acquireDiscussionRun, releaseDiscussionRun } from "@/lib/discussion/run-lease";
 import { getDiscussionSessionManager } from "@/lib/runtime/singleton";
 
 /**
@@ -38,7 +39,7 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/v1/discussions
   });
   if (!snapshotTurn) return err(40401, "没有可重试的失败回合快照", 404);
 
-  const snapshot = snapshotTurn.inputSnapshot as { prompt?: unknown } | null;
+  const snapshot = snapshotTurn.inputSnapshot as { prompt?: unknown; runId?: unknown } | null;
   const prompt = typeof snapshot?.prompt === "string" ? snapshot.prompt : "";
   if (!prompt.trim()) return err(42201, "输入快照缺少 prompt", 422);
 
@@ -53,27 +54,38 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/v1/discussions
   }
 
   const newAttempt = snapshotTurn.attempt + 1;
-  const result = await runDiscussionDshTurn({
-    discussionId: id,
-    participantId: participant.id,
-    sessionId: participant.dshSessionId,
-    kind: "persona",
-    round: snapshotTurn.round,
-    attempt: newAttempt,
-    prompt,
-    inputSnapshot: snapshotTurn.inputSnapshot as Prisma.InputJsonValue,
-    personaId: participant.personaId,
-    sender: persona.name,
-  });
+  const lease = await acquireDiscussionRun(id);
+  if (!lease) return err(40901, "该讨论已有回合正在运行，请稍后重试", 409);
 
-  if (result.status === "failed") {
-    const status = result.errorCode === "DSH_SESSION_BUSY" ? 409 : 502;
-    return err(status === 409 ? 40901 : 50201, result.error ?? "DSH 重试失败", status);
-  }
+  try {
+    const result = await runDiscussionDshTurn({
+      discussionId: id,
+      runId: lease.runId,
+      participantId: participant.id,
+      sessionId: participant.dshSessionId,
+      kind: "persona",
+      round: snapshotTurn.round,
+      attempt: newAttempt,
+      prompt,
+      inputSnapshot: {
+        ...(snapshotTurn.inputSnapshot as Record<string, unknown>),
+        runId: lease.runId,
+      } as Prisma.InputJsonValue,
+      personaId: participant.personaId,
+      sender: persona.name,
+    });
 
-  const isOneOnOne = Array.isArray(discussion.personaIds) && discussion.personaIds.length === 1;
-  if (isOneOnOne) {
-    await prisma.discussion.update({ where: { id }, data: { status: "ready" } });
+    if (result.status === "failed") {
+      const status = result.errorCode === "DSH_SESSION_BUSY" ? 409 : 502;
+      return err(status === 409 ? 40901 : 50201, result.error ?? "DSH 重试失败", status);
+    }
+
+    const isOneOnOne = Array.isArray(discussion.personaIds) && discussion.personaIds.length === 1;
+    if (isOneOnOne) {
+      await prisma.discussion.update({ where: { id }, data: { status: "ready" } });
+    }
+    return ok({ retried: true, attempt: newAttempt, eventsWritten: result.eventsWritten });
+  } finally {
+    await releaseDiscussionRun(id, lease.runId);
   }
-  return ok({ retried: true, attempt: newAttempt, eventsWritten: result.eventsWritten });
 }

@@ -15,13 +15,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     // 挂载后读取本地折叠偏好（客户端专属，避免 hydration 不一致）
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
+    let shouldCollapse = false;
     try {
-      if (localStorage.getItem(STORAGE_KEY) === "1") {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setCollapsed(true);
-      }
+      if (localStorage.getItem(STORAGE_KEY) === "1") shouldCollapse = true;
     } catch {
       /* ignore */
+    }
+    // ≤833px 首次进入默认收起（规范：tablet portrait 起全局导航折叠）
+    if (window.matchMedia("(max-width: 833px)").matches) shouldCollapse = true;
+    if (shouldCollapse) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setCollapsed(true);
     }
   }, []);
 
@@ -39,30 +43,31 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="flex h-11 shrink-0 items-center gap-3 border-b border-hairline bg-pearl px-3 text-ink">
+      {/* DESIGN.md global-nav：纯黑 44px，全站唯一出现纯黑的位置 */}
+      <header className="flex h-11 shrink-0 items-center gap-3 border-b border-black bg-black px-3 text-white">
         <button
           onClick={toggle}
           aria-label={collapsed ? "展开侧边栏" : "隐藏侧边栏"}
           title={collapsed ? "展开侧边栏" : "隐藏侧边栏"}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-60 transition-colors hover:bg-parchment hover:text-ink"
+          className="relative flex h-8 w-8 items-center justify-center rounded-sm text-white/70 transition-colors before:absolute before:-inset-1.5 before:content-[''] hover:bg-white/10 hover:text-white"
         >
           <SidebarSimple size={18} weight="bold" />
         </button>
         <div className="flex items-center gap-2.5">
-          <span className="flex h-6 w-6 items-center justify-center rounded-md bg-primary text-[11px] font-bold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.25)]">
+          <span className="flex h-6 w-6 items-center justify-center rounded-sm bg-primary text-fine font-semibold text-white">
             BT
           </span>
-          <span className="text-[13px] font-semibold tracking-[-0.12px]">BusinessTalking</span>
-          <span className="hidden text-[11px] text-ink-40 sm:inline">商业可行性对话</span>
+          <span className="text-caption font-semibold tracking-[-0.12px]">BusinessTalking</span>
+          <span className="hidden text-fine text-white/50 sm:inline">商业可行性对话</span>
         </div>
-        <div className="ml-auto flex items-center gap-2 text-[11px] text-ink-40">
+        <div className="ml-auto flex items-center gap-2 text-fine text-white/50">
           <FloppyDisk size={14} />
           本地数据
         </div>
       </header>
 
-      <div className="flex flex-1 min-h-0">
-        <Sidebar collapsed={!mounted ? false : collapsed} />
+      <div className="relative flex flex-1 min-h-0">
+        <Sidebar collapsed={!mounted ? false : collapsed} onClose={() => setCollapsed(true)} />
         <main className="min-w-0 flex-1 bg-canvas">{children}</main>
       </div>
     </div>

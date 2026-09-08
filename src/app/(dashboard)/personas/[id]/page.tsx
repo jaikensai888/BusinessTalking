@@ -129,7 +129,7 @@ export default function PersonaDetailPage() {
 
   if (error && !persona) {
     return (
-      <div className="px-6 py-10 text-[14px] text-error">
+      <div className="px-6 py-10 text-caption text-error">
         {error}
         <button className="ml-4 text-primary underline" onClick={() => router.push("/personas")}>
           返回人格库
@@ -148,12 +148,12 @@ export default function PersonaDetailPage() {
       <div className="mb-6 flex items-center gap-4">
         <Avatar name={persona.name} size="xl" />
         <div className="flex-1">
-          <h1 className="text-[26px] font-semibold leading-[1.2] tracking-[-0.4px]">{persona.name}</h1>
-          <div className="text-[14px] text-primary mt-1">
+          <h1 className="text-lead font-semibold leading-[1.2] tracking-[-0.4px]">{persona.name}</h1>
+          <div className="text-caption text-primary mt-1">
             {TYPE_LABEL[persona.perspectiveType] ?? persona.perspectiveType}
             {persona.isBuiltin && <span className="ml-2 text-ink-48">· 内置人物</span>}
           </div>
-          {persona.description && <div className="text-[13px] text-ink-48 mt-1">{persona.description}</div>}
+          {persona.description && <div className="text-caption text-ink-48 mt-1">{persona.description}</div>}
         </div>
         {!persona.isBuiltin && (
           <Button variant="secondary" onClick={() => router.push(`/personas/${persona.id}/edit`)}>
@@ -168,7 +168,7 @@ export default function PersonaDetailPage() {
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={cn("rounded-full px-5 py-2 text-[14px] transition-colors", tab === t ? "bg-ink text-white" : "text-ink-48 hover:text-ink")}
+            className={cn("rounded-full px-5 py-2 text-caption transition-colors", tab === t ? "bg-ink text-white" : "text-ink-48 hover:text-ink")}
           >
             {t}
           </button>
@@ -178,8 +178,8 @@ export default function PersonaDetailPage() {
       {tab === "详情" ? (
         <div className="grid h-[600px] grid-cols-[240px_1fr] gap-4">
           {/* 右侧目录 */}
-          <aside className="overflow-hidden rounded-2xl border border-hairline bg-white">
-            <div className="border-b border-divider-soft px-4 py-3 text-[12px] font-semibold uppercase tracking-wide text-ink-40">
+          <aside className="overflow-hidden rounded-lg border border-hairline bg-white">
+            <div className="border-b border-divider-soft px-4 py-3 text-fine font-semibold uppercase tracking-wide text-ink-40">
               目录 · skill 结构
             </div>
             <nav className="h-[calc(100%-45px)] overflow-auto p-2">
@@ -191,8 +191,8 @@ export default function PersonaDetailPage() {
                     key={item.key}
                     onClick={() => void loadDoc(item.key)}
                     className={cn(
-                      "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] transition-colors",
-                      on ? "bg-primary/10 font-medium text-primary" : "text-ink-60 hover:bg-parchment"
+                      "flex w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-caption transition-colors",
+                      on ? "bg-primary/10 font-semibold text-primary" : "text-ink-60 hover:bg-parchment"
                     )}
                     title={item.label}
                   >
@@ -205,11 +205,11 @@ export default function PersonaDetailPage() {
           </aside>
 
           {/* 左侧编辑器 */}
-          <div className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-hairline bg-white">
+          <div className="flex min-w-0 flex-col overflow-hidden rounded-lg border border-hairline bg-white">
             <div className="flex items-center gap-2 border-b border-divider-soft px-4 py-3">
               <FileText size={15} className="text-primary" />
-              <span className="truncate text-[14px] font-semibold">{activeLabel}</span>
-              <span className={cn("ml-auto text-[11px]", dirty ? "text-warning" : "text-ink-40")}>
+              <span className="truncate text-caption font-semibold">{activeLabel}</span>
+              <span className={cn("ml-auto text-fine", dirty ? "text-warning" : "text-ink-40")}>
                 {dirty ? "已修改" : "只读浏览"}
               </span>
               <Button size="sm" variant="dark" onClick={saveDoc} disabled={saving || !dirty}>
@@ -224,7 +224,7 @@ export default function PersonaDetailPage() {
                 setDirty(true);
               }}
               spellCheck={false}
-              className="h-full min-h-0 w-full flex-1 resize-none p-4 text-[13px] leading-[1.7] font-mono text-ink outline-none focus:bg-pearl/40 focus:ring-4 focus:ring-primary/10"
+              className="h-full min-h-0 w-full flex-1 resize-none p-4 text-caption leading-[1.7] font-mono text-ink outline-none focus:bg-pearl/40 focus:ring-4 focus:ring-primary/10"
             />
           </div>
         </div>
@@ -232,7 +232,7 @@ export default function PersonaDetailPage() {
         <ChatPanel personaId={persona.id} personaName={persona.name} />
       )}
 
-      {error && persona && <p className="mt-3 text-[13px] text-error">{error}</p>}
+      {error && persona && <p className="mt-3 text-caption text-error">{error}</p>}
     </div>
   );
 }

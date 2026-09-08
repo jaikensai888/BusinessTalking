@@ -92,7 +92,8 @@ function isApprovalEvent(value: unknown): value is DiscussionProjectionEvent {
   return typeof value.approvalId === "string"
     && typeof value.discussionId === "string"
     && typeof value.sessionId === "string"
-    && typeof value.toolName === "string";
+    && typeof value.toolName === "string"
+    && (value.scope === undefined || value.scope === "discussion" || value.scope === "session");
 }
 
 function streamErrorMessage(data: Record<string, unknown>): string {

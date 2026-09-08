@@ -23,8 +23,6 @@ import type { RuntimeProfile } from "./types";
 import {
   getDshApprovalToken,
   getDshApprovalUrl,
-  getDshInternalSearchUrl,
-  getDshInternalToken,
 } from "./internal-endpoints";
 
 let manager: DshRuntimeManager | null = null;
@@ -53,14 +51,10 @@ export function getDiscussionSessionManager(): DiscussionSessionManager {
 export async function getDiscussionSessionConfig(options: {
   approvalUrl?: string;
   approvalToken?: string;
-  internalSearchUrl?: string;
-  internalSearchToken?: string;
 } = {}) {
   const config = await getDshTurnConfig();
   const approvalUrl = options.approvalUrl ?? getDshApprovalUrl();
   const approvalToken = options.approvalToken ?? getDshApprovalToken();
-  const internalSearchUrl = options.internalSearchUrl ?? getDshInternalSearchUrl();
-  const internalSearchToken = options.internalSearchToken ?? getDshInternalToken();
   return {
     profile: config.profile,
     processOptions: {
@@ -73,8 +67,6 @@ export async function getDiscussionSessionConfig(options: {
       apiKey: config.apiKey,
       approvalUrl,
       approvalToken,
-      internalSearchUrl,
-      internalSearchToken,
     },
   };
 }

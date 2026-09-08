@@ -146,7 +146,7 @@ export function buildChildRuntimeEnv(source = process.env) {
   const allowed = [
     "PATH", "Path", "HOME", "USERPROFILE", "TEMP", "TMP", "TMPDIR",
     "SystemRoot", "SYSTEMROOT", "COMSPEC", "PATHEXT", "WINDIR", "LANG",
-    "LC_ALL", "NODE_PATH", "PWD", "INIT_CWD", "APPDATA", "LOCALAPPDATA",
+    "LC_ALL", "NODE_PATH", "DEEPSEEK_SEARCH_BASE_URL", "PWD", "INIT_CWD", "APPDATA", "LOCALAPPDATA",
   ];
   const out = {};
   for (const key of allowed) if (source[key]) out[key] = source[key];
@@ -155,7 +155,6 @@ export function buildChildRuntimeEnv(source = process.env) {
     "BT_DSH_PATCHES", "DSH_PERMISSION_MODE", "BT_DSH_API_KEY", "BT_DSH_LLM_API_KEY",
     "DEEPSEEK_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
     "BT_DSH_APPROVAL_URL", "BT_DSH_APPROVAL_TOKEN",
-    "BT_INTERNAL_SEARCH_URL", "BT_INTERNAL_TOKEN",
   ]) if (source[key]) out[key] = source[key];
   return out;
 }

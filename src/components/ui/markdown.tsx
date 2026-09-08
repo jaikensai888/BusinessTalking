@@ -22,7 +22,7 @@ function inline(text: string, names?: Set<string>, seed = 0): ReactNode[] {
       );
     } else if (tok.startsWith("`")) {
       out.push(
-        <code key={key++} className="rounded bg-ink/10 px-1 py-0.5 text-[0.88em] font-medium">
+        <code key={key++} className="rounded bg-ink/10 px-1 py-0.5 text-[0.88em] font-semibold">
           {tok.slice(1, -1)}
         </code>
       );
@@ -121,7 +121,7 @@ export function Markdown({
           key={blocks.length}
           className={cn(
             "py-0.5 font-semibold",
-            lvl === 1 ? "text-[15px]" : lvl === 2 ? "text-[14px]" : "text-[13px]",
+            lvl === 1 ? "text-caption" : lvl === 2 ? "text-caption" : "text-caption",
             tone === "dark" ? "text-white" : "text-ink"
           )}
         >

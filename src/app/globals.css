@@ -1,19 +1,27 @@
 @import "tailwindcss";
 
 /* DESIGN.md 设计 token（Apple 设计语言）—— 单一强调色 / 明暗瓦片 / pill 动作语法
-   2026-09-01 精修（design-taste）：ink-48 加深至 #6e6e73 保证 WCAG AA、新增占位符 ink-40、
-   全局 focus-visible 环、细滚动条、克制入场动效（尊重 prefers-reduced-motion） */
+   2026-09-08 设计系统收敛（design-system-audit）：
+   - 圆角对齐规范 4 档（sm 8 / md 11 / lg 18 / pill），覆盖 Tailwind 默认的 4/6/8px
+   - 阴影收敛为 2 个 token（产品投影 + 模态层），卡片/按钮/气泡一律无阴影
+   - 字号收敛为 6 档语义类，负字距按档位分级（12px 以下不再施加 -0.374px）
+   - 语义色补 hover/ink 变体，消除硬编码 hex
+   注：--color-canvas 保留 #f4f4f6 而非规范 #ffffff —— 本产品是高密度控制台，
+   白卡片需要略深画布提供分离；规范的白底白卡适用于 Apple 那种低密度营销页。 */
 @theme inline {
   --color-primary: #0066cc;
+  --color-primary-hover: #0077e6;
   --color-primary-focus: #0071e3;
   --color-primary-on-dark: #2997ff;
   --color-canvas: #f4f4f6;
-  --color-parchment: #f2f2f4;
+  --color-parchment: #f5f5f7;
   --color-pearl: #fafafc;
   --color-tile-1: #272729;
   --color-tile-2: #2a2a2c;
   --color-tile-3: #252527;
+  --color-black: #000000;
   --color-ink: #1d1d1f;
+  --color-ink-hover: #2c2c2e;
   --color-ink-80: #333333;
   --color-ink-60: #48484a;
   --color-ink-48: #6e6e73;
@@ -21,11 +29,61 @@
   --color-hairline: #e0e0e0;
   --color-divider-soft: #f0f0f0;
   --color-success: #2e9e5b;
+  --color-success-ink: #1f7a43;
   --color-warning: #ff9500;
+  --color-warning-ink: #b26a00;
   --color-error: #ff3b30;
+  --color-error-ink: #c7352b;
+  --color-error-hover: #e02e24;
+
+  /* 圆角刻度：规范 4 档。覆盖 Tailwind 默认（sm 4 / md 6 / lg 8） */
+  --radius-sm: 8px; /* 紧凑工具：chip、图标块、输入框、小标签 */
+  --radius-md: 11px; /* capsule：输入控件、气泡尖角 */
+  --radius-lg: 18px; /* 卡片：store-utility-card、面板、模态 */
+
+  /* 阴影：全系统仅 3 个，全部为「功能性」而非装饰性。
+     规范原文只定义 1 个产品投影，且明确禁止用于卡片/按钮/文字 —— 本产品是带浮层的控制台，
+     额外补 2 个浮层阴影是必要的工程扩展，但绝不再出现第四种任意值阴影。 */
+  --shadow-product: 3px 5px 30px 0 rgba(0, 0, 0, 0.22); /* 规范唯一产品投影：图像落在表面上 */
+  --shadow-float: 0 8px 24px rgba(0, 0, 0, 0.12); /* 浮层：下拉、浮标、气泡菜单 */
+  --shadow-overlay: 0 24px 80px rgba(0, 0, 0, 0.3); /* 模态：覆盖全屏的对话框 */
+
   --font-sans: system-ui, -apple-system, "SF Pro Display", "SF Pro Text", "Segoe UI",
     Inter, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* 字号语义档位：替代散落的任意值 text-[Npx]。
+   负字距按档位分级 —— 规范明确 -0.374px 是 display 级收紧，12px 以下不得使用。 */
+@utility text-display-md {
+  font-size: 34px;
+  line-height: 1.15;
+  letter-spacing: -0.374px;
+}
+@utility text-lead {
+  font-size: 28px;
+  line-height: 1.14;
+  letter-spacing: 0.196px;
+}
+@utility text-tagline {
+  font-size: 21px;
+  line-height: 1.19;
+  letter-spacing: 0.231px;
+}
+@utility text-body {
+  font-size: 17px;
+  line-height: 1.47;
+  letter-spacing: -0.374px;
+}
+@utility text-caption {
+  font-size: 14px;
+  line-height: 1.43;
+  letter-spacing: -0.224px;
+}
+@utility text-fine {
+  font-size: 12px;
+  line-height: 1.43;
+  letter-spacing: -0.12px;
 }
 
 html {
@@ -38,7 +96,8 @@ body {
   font-family: var(--font-sans);
   font-size: 17px;
   line-height: 1.47;
-  letter-spacing: -0.374px;
+  /* 负字距交给各字号档位处理，不再全局继承到 12px 以下的元信息文字 */
+  letter-spacing: 0;
   -webkit-font-smoothing: antialiased;
   font-feature-settings: "cv11", "ss01";
 }

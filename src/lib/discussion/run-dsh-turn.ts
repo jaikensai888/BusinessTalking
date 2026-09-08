@@ -5,10 +5,12 @@ import {
   getDiscussionSessionManager,
 } from "@/lib/runtime/singleton";
 import {
+  DiscussionRunLeaseLostError,
   DshError,
   DshProtocolError,
   DshTurnError,
 } from "@/lib/dsh/errors";
+import { isDiscussionRunOwner } from "./run-lease";
 import type { DshNotification } from "@/lib/dsh/events";
 import {
   extractMappedEvent,
@@ -17,6 +19,7 @@ import { ingestDiscussionEvent } from "./event-ledger";
 
 export interface RunDiscussionDshTurnInput {
   discussionId: string;
+  runId: string;
   participantId: string | null;
   sessionId: string;
   kind: "persona" | "moderator";
@@ -60,6 +63,7 @@ function isCompletedTurnEnd(data: Record<string, unknown>): boolean {
 
 function validateInput(input: RunDiscussionDshTurnInput): void {
   if (!input.discussionId.trim()) throw new DshProtocolError("discussionId 不能为空");
+  if (!input.runId.trim()) throw new DshProtocolError("Discussion runId 不能为空");
   if (!input.sessionId.trim()) throw new DshProtocolError("DSH Session id 不能为空");
   if (!input.prompt.trim()) throw new DshProtocolError("DSH prompt 不能为空");
   if (!Number.isSafeInteger(input.round) || input.round < 0) {
@@ -84,18 +88,23 @@ async function markDshTurnFailed(
   error: unknown,
 ): Promise<RunDiscussionDshTurnResult> {
   const details = errorDetails(error);
-  await prisma.discussionTurn.update({
-    where: { id: turnId },
-    data: {
-      status: "failed",
-      errorCode: details.code,
-      errorMessage: details.message,
-      completedAt: new Date(),
-    },
-  }).catch(() => undefined);
+  const canWriteFailure = details.code !== "DISCUSSION_RUN_LEASE_LOST"
+    || await isDiscussionRunOwner(input.discussionId, input.runId);
+  if (canWriteFailure) {
+    await prisma.discussionTurn.update({
+      where: { id: turnId },
+      data: {
+        status: "failed",
+        errorCode: details.code,
+        errorMessage: details.message,
+        completedAt: new Date(),
+      },
+    }).catch(() => undefined);
+  }
 
   if (
-    input.participantId
+    canWriteFailure
+    && input.participantId
     && details.code !== "DSH_SESSION_BUSY"
     && details.code !== "DISCUSSION_ARCHIVED"
   ) {
@@ -128,10 +137,14 @@ export async function runDiscussionDshTurn(
   input: RunDiscussionDshTurnInput,
 ): Promise<RunDiscussionDshTurnResult> {
   validateInput(input);
+  if (!(await isDiscussionRunOwner(input.discussionId, input.runId))) {
+    throw new DiscussionRunLeaseLostError();
+  }
 
   const turn = await prisma.discussionTurn.create({
     data: {
       discussionId: input.discussionId,
+      runId: input.runId,
       participantId: input.participantId,
       sessionId: input.sessionId,
       kind: input.kind,
@@ -196,6 +209,9 @@ export async function runDiscussionDshTurn(
     }
     if (!finalText.trim() || !finalSourceEventId) {
       throw new DshTurnError("DSH 未收到非空 assistant/message");
+    }
+    if (!(await isDiscussionRunOwner(input.discussionId, input.runId))) {
+      throw new DiscussionRunLeaseLostError();
     }
 
     const message = await prisma.discussionMessage.update({

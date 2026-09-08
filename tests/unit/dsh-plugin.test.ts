@@ -37,7 +37,7 @@ interface MountedAgent {
   preExecuteHandler: ((execution: { name: string }, next: () => Promise<unknown>) => Promise<unknown>) | undefined;
 }
 
-async function captureMount(sessionId: string) {
+async function captureMount(sessionId: string, webSearch: ReturnType<typeof vi.fn> = vi.fn(async () => ({ sources: [], truncated: false }))) {
   let created: ((payload: { agent: unknown }) => void) | undefined;
   const mounted: MountedAgent = {
     providerFactory: undefined,
@@ -90,6 +90,9 @@ async function captureMount(sessionId: string) {
         return () => undefined;
       },
       getSectionOrder: (name: string) => (name === "DEPLOYMENT_PERSONA" ? 0 : 500),
+    },
+    web: {
+      search: webSearch,
     },
   };
 
@@ -194,7 +197,7 @@ describe("business-talking DSH plugin (P0 scoped mount)", () => {
     process.env.BT_DSH_SESSION_ID = sessionId;
     try {
       const { mounted } = await captureMount(sessionId) as { mounted: MountedAgent };
-      expect(mounted.injectedDependencies).toEqual(["skills", "systemPrompt", "tools"]);
+      expect(mounted.injectedDependencies).toEqual(["skills", "systemPrompt", "tools", "web"]);
     } finally {
       fs.rmSync(manifestPath, { force: true });
       fs.rmSync(snapshotRoot, { recursive: true, force: true });
@@ -241,6 +244,38 @@ describe("business-talking DSH plugin (P0 scoped mount)", () => {
       expect(next).not.toHaveBeenCalled();
       await expect(mounted.preExecuteHandler?.({ name: "skill" }, next)).resolves.toEqual({ kind: "allow" });
       expect(next).toHaveBeenCalledOnce();
+    } finally {
+      fs.rmSync(manifestPath, { force: true });
+      fs.rmSync(snapshotRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("executes web_search through the DSH web capability", async () => {
+    const sessionId = `bt-plugin-dsh-web-${crypto.randomUUID()}`;
+    const { manifestPath, snapshotRoot } = writeFixtureManifest({
+      sessionId,
+      toolPolicy: { webSearch: true, sideEffects: false },
+    });
+    const webSearch = vi.fn(async () => ({
+      content: "DeepSeek search answer",
+      sources: [{ url: "https://example.com", title: "Example", snippet: "A result" }],
+      truncated: false,
+    }));
+    process.env.BT_DSH_SESSION_ID = sessionId;
+    try {
+      const { mounted } = await captureMount(sessionId, webSearch) as { mounted: MountedAgent };
+      const tool = mounted.registeredTools.get("web_search") as {
+        execute: (args: unknown, exec: unknown) => Promise<unknown>;
+      };
+      expect(tool).toBeDefined();
+      const signal = new AbortController().signal;
+      await expect(tool.execute({ query: "latest AI", maxResults: 3 }, { agent: { id: sessionId }, signal }))
+        .resolves.toEqual({
+          content: "DeepSeek search answer",
+          sources: [{ url: "https://example.com", title: "Example", snippet: "A result" }],
+          truncated: false,
+        });
+      expect(webSearch).toHaveBeenCalledWith({ query: "latest AI", maxResults: 3 }, signal);
     } finally {
       fs.rmSync(manifestPath, { force: true });
       fs.rmSync(snapshotRoot, { recursive: true, force: true });
@@ -442,7 +477,7 @@ describe("business-talking DSH plugin (P0 scoped mount)", () => {
       }, vi.fn())).resolves.toBe("allowed-once");
       const request = fetchMock.mock.calls[0][1] as RequestInit;
       const payload = JSON.parse(String(request.body));
-      expect(payload).toMatchObject({ discussionId: "discussion-test", sessionId: askId, toolName: "tool-test", callId: "call-1", reason: "why" });
+      expect(payload).toMatchObject({ discussionId: "discussion-test", sessionId: askId, sessionKind: "persona", toolName: "tool-test", callId: "call-1", reason: "why" });
       expect(payload.arguments).toBeUndefined();
       expect((request.headers as Record<string, string>)["x-bt-internal-token"]).toBe("token");
       fs.rmSync(askFixture.manifestPath, { force: true });

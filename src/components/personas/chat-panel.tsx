@@ -160,34 +160,34 @@ export function ChatPanel({ personaId, personaName }: { personaId: string; perso
     <div className="flex h-[600px] gap-4">
       {/* 会话列表 */}
       <aside
-        className="w-52 shrink-0 overflow-hidden rounded-2xl border border-hairline bg-white"
+        className="w-52 shrink-0 overflow-hidden rounded-lg border border-hairline bg-white"
         onMouseEnter={ensureLoaded}
       >
         <div className="flex items-center justify-between border-b border-divider-soft px-4 py-3">
-          <span className="text-[12px] font-semibold uppercase tracking-wide text-ink-40">会话</span>
+          <span className="text-fine font-semibold uppercase tracking-wide text-ink-40">会话</span>
           <button
             onClick={newConversation}
             title="新建会话"
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-ink-60 transition-colors hover:bg-parchment hover:text-ink"
+            className="relative flex h-7 w-7 items-center justify-center rounded-sm text-ink-60 transition-colors before:absolute before:-inset-2 before:content-[''] hover:bg-parchment hover:text-ink"
           >
             <Plus size={16} weight="bold" />
           </button>
         </div>
         <div className="h-[calc(100%-45px)] space-y-1 overflow-auto p-2">
           {conversations.length === 0 ? (
-            <p className="px-3 py-4 text-[12px] text-ink-40">还没有会话</p>
+            <p className="px-3 py-4 text-fine text-ink-40">还没有会话</p>
           ) : (
             conversations.map((c) => (
               <button
                 key={c.id}
                 onClick={() => openConversation(c.id)}
                 className={cn(
-                  "w-full rounded-lg px-3 py-2 text-left transition-colors",
+                  "w-full rounded-sm px-3 py-2 text-left transition-colors",
                   activeId === c.id ? "bg-primary/10 text-primary" : "hover:bg-parchment"
                 )}
               >
-                <div className="truncate text-[13px] text-ink">{c.title || "未命名会话"}</div>
-                <div className="text-[11px] text-ink-40">{c.messageCount} 条消息</div>
+                <div className="truncate text-caption text-ink">{c.title || "未命名会话"}</div>
+                <div className="text-fine text-ink-40">{c.messageCount} 条消息</div>
               </button>
             ))
           )}
@@ -196,7 +196,7 @@ export function ChatPanel({ personaId, personaName }: { personaId: string; perso
           <button
             onClick={exportNote}
             disabled={messages.length === 0}
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-[13px] text-ink-60 transition-colors hover:bg-parchment disabled:opacity-40"
+            className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-caption text-ink-60 transition-colors hover:bg-parchment disabled:opacity-40"
           >
             <DownloadSimple size={15} /> 导出笔记
           </button>
@@ -204,12 +204,12 @@ export function ChatPanel({ personaId, personaName }: { personaId: string; perso
       </aside>
 
       {/* 对话区 */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-hairline bg-white">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-hairline bg-white">
         <div className="flex items-center gap-3 border-b border-divider-soft px-5 py-3">
           <Avatar name={personaName} size="sm" />
           <div>
-            <div className="text-[14px] font-semibold text-ink">{personaName}</div>
-            <div className="text-[11px] text-ink-40">与你一对一交流</div>
+            <div className="text-caption font-semibold text-ink">{personaName}</div>
+            <div className="text-fine text-ink-40">与你一对一交流</div>
           </div>
         </div>
 
@@ -227,14 +227,14 @@ export function ChatPanel({ personaId, personaName }: { personaId: string; perso
                 <div key={i} className={cn("flex gap-2.5", isUser && "flex-row-reverse")}>
                   <Avatar name={isUser ? "我" : personaName} size="sm" className="mt-0.5" />
                   <div className="max-w-[78%]">
-                    <div className={cn("mb-1 text-[11px] text-ink-40", isUser && "text-right")}>
+                    <div className={cn("mb-1 text-fine text-ink-40", isUser && "text-right")}>
                       {isUser ? "我" : personaName}
                     </div>
                     <div
                       className={cn(
-                        "rounded-2xl px-4 py-2.5 text-[14px] leading-[1.65] whitespace-pre-wrap",
+                        "rounded-lg px-4 py-2.5 text-caption leading-[1.65] whitespace-pre-wrap",
                         isUser
-                          ? "bg-primary text-white rounded-tr-sm shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]"
+                          ? "bg-primary text-white rounded-tr-sm"
                           : "bg-parchment text-ink rounded-tl-sm"
                       )}
                     >
@@ -250,10 +250,10 @@ export function ChatPanel({ personaId, personaName }: { personaId: string; perso
           )}
         </div>
 
-        {error && <div className="px-6 pb-1 text-[12px] text-error">{error}</div>}
+        {error && <div className="px-6 pb-1 text-fine text-error">{error}</div>}
 
         <div className="border-t border-divider-soft p-3">
-          <div className="flex items-end gap-2 rounded-2xl border border-hairline bg-white p-2 transition-colors focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10">
+          <div className="flex items-end gap-2 rounded-lg border border-hairline bg-white p-2 transition-colors focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10">
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -265,13 +265,13 @@ export function ChatPanel({ personaId, personaName }: { personaId: string; perso
               }}
               rows={1}
               placeholder={`向「${personaName}」提问…（Enter 发送，Shift+Enter 换行）`}
-              className="max-h-32 flex-1 resize-none bg-transparent px-2 py-1.5 text-[14px] text-ink outline-none placeholder:text-ink-40"
+              className="max-h-32 flex-1 resize-none bg-transparent px-2 py-1.5 text-caption text-ink outline-none placeholder:text-ink-40"
             />
             <button
               onClick={send}
               disabled={sending || !input.trim()}
               aria-label="发送"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-white transition-all hover:bg-[#0077e6] active:scale-95 disabled:opacity-40"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-white transition-all hover:bg-primary-hover active:scale-95 disabled:opacity-40"
             >
               {sending ? <SpinnerGap size={17} className="animate-spin" /> : <ArrowUp size={17} weight="bold" />}
             </button>

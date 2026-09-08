@@ -16,6 +16,7 @@ export type DshErrorCode =
   | "DSH_TURN_FAILED"
   | "RUNTIME_PROFILE_CONFLICT"
   | "DISCUSSION_STATE_CONFLICT"
+  | "DISCUSSION_RUN_LEASE_LOST"
   | "DISCUSSION_ARCHIVED"
   | "SKILL_INSTALL_REQUIRED"
   | "IMMUTABLE_SKILL_REVISION";
@@ -26,6 +27,7 @@ export function httpStatusFor(code: DshErrorCode): number {
     case "DSH_SESSION_BUSY":
     case "RUNTIME_PROFILE_CONFLICT":
     case "DISCUSSION_STATE_CONFLICT":
+    case "DISCUSSION_RUN_LEASE_LOST":
     case "DISCUSSION_ARCHIVED":
     case "SKILL_INSTALL_REQUIRED":
     case "IMMUTABLE_SKILL_REVISION":
@@ -116,6 +118,11 @@ export class DshTurnError extends DshError {
 export class DiscussionStateConflictError extends DshError {
   constructor(message = "DiscussionState 版本冲突") {
     super("DISCUSSION_STATE_CONFLICT", message);
+  }
+}
+export class DiscussionRunLeaseLostError extends DshError {
+  constructor(message = "Discussion 运行租约已失效，停止写入") {
+    super("DISCUSSION_RUN_LEASE_LOST", message);
   }
 }
 export class DiscussionArchivedError extends DshError {

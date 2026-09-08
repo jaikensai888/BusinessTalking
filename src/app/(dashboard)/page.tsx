@@ -13,6 +13,8 @@ import {
   type Icon,
 } from "@phosphor-icons/react";
 import { Avatar } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/modal";
 import { SpacesCards } from "@/components/workspace/spaces-cards";
 import { FloatingAction } from "@/components/workspace/floating-action";
 import { ParticleWordmark } from "@/components/workspace/particle-wordmark";
@@ -52,7 +54,7 @@ function Chip({
   return (
     <button
       onClick={onClick}
-      className="flex items-center gap-1.5 rounded-lg border border-hairline bg-white px-3 py-2 text-[13px] text-ink-60 shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-colors hover:border-primary/40 hover:text-ink"
+      className="flex items-center gap-1.5 rounded-sm border border-hairline bg-white px-3 py-2 text-caption text-ink-60 transition-colors hover:border-primary/40 hover:text-ink"
     >
       <IconComponent size={15} weight="duotone" />
       {label}
@@ -353,14 +355,14 @@ function WorkspaceContent() {
   return (
     <div className="min-h-full">
       {/* hero：浅色统一（页面底色即画布，无深色卡片）。relative z-30 让输入下拉浮于下方“会话空间”卡片之上 */}
-      <section className="relative z-30 mx-auto max-w-[1400px] px-6 pt-14 pb-2">
+      <section className="relative z-30 mx-auto max-w-[1400px] px-4 pt-10 pb-2 sm:px-6 sm:pt-14">
         <div className="fl-rise mx-auto flex max-w-2xl flex-col items-center gap-6">
           <div className="text-center">
             <ParticleWordmark />
-            <h1 className="mt-2 text-[30px] font-semibold leading-[1.15] tracking-[-0.4px] text-ink md:text-[34px]">
+            <h1 className="mt-2 text-display-md font-semibold leading-[1.15] tracking-[-0.4px] text-ink md:text-display-md">
               {greet()}，分析官！
             </h1>
-            <p className="mx-auto mt-3 max-w-xl text-[15px] leading-[1.6] text-ink-48">
+            <p className="mx-auto mt-3 max-w-xl text-caption leading-[1.6] text-ink-48">
               描述你的商业想法，一键产出带多视角质询的可行性报告。
             </p>
           </div>
@@ -377,7 +379,7 @@ function WorkspaceContent() {
           >
             <div
               className={cn(
-                "rounded-2xl border border-hairline bg-white p-2 shadow-[0_8px_30px_rgba(0,0,0,0.05)] transition-all",
+                "rounded-lg border border-hairline bg-white p-2 transition-all",
                 dragOver && "ring-4 ring-primary/40"
               )}
             >
@@ -401,15 +403,15 @@ function WorkspaceContent() {
                     submit();
                   }
                 }}
-                className="w-full resize-none rounded-t-xl bg-transparent px-3.5 pt-3 text-[16px] leading-[1.6] text-ink outline-none placeholder:text-ink-40"
+                className="w-full resize-none rounded-t-lg bg-transparent px-3.5 pt-3 text-body leading-[1.6] text-ink outline-none placeholder:text-ink-40"
               />
 
               {/* 附件指示条 */}
               {attachment && (
-                <div className="mx-1.5 mt-1 flex items-center gap-2 rounded-lg bg-parchment px-3 py-1.5 text-[13px] text-ink-60">
+                <div className="mx-1.5 mt-1 flex items-center gap-2 rounded-sm bg-parchment px-3 py-1.5 text-caption text-ink-60">
                   <FilePdf size={15} className="shrink-0 text-error" />
                   <span className="truncate">{attachment.filename}</span>
-                  <span className="shrink-0 text-[11px] text-ink-40">
+                  <span className="shrink-0 text-fine text-ink-40">
                     已读取 {attachment.charCount} 字{attachment.truncated ? "（截取）" : ""}
                   </span>
                   <button onClick={() => setAttachment(null)} aria-label="移除资料" title="移除资料" className="ml-auto shrink-0 text-ink-40 transition-colors hover:text-ink">
@@ -418,14 +420,14 @@ function WorkspaceContent() {
                 </div>
               )}
 
-              <div className="mt-1 flex items-center gap-2 rounded-b-xl bg-parchment/70 px-2 py-2">
+              <div className="mt-1 flex items-center gap-2 rounded-b-lg bg-parchment/70 px-2 py-2">
                 <div className="flex flex-1 flex-wrap items-center gap-2">
                   {/* 上传文件 = 加号 */}
                   <button
                     onClick={() => fileInputRef.current?.click()}
                     aria-label="上传文件"
                     title="上传文件"
-                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-hairline bg-white text-ink-60 shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-colors hover:border-primary/40 hover:text-ink"
+                    className="relative flex h-8 w-8 items-center justify-center rounded-sm border border-hairline bg-white text-ink-60 transition-colors before:absolute before:-inset-1.5 before:content-[''] hover:border-primary/40 hover:text-ink"
                   >
                     {uploading ? <SpinnerGap size={16} className="animate-spin" /> : <Plus size={16} weight="bold" />}
                   </button>
@@ -440,7 +442,7 @@ function WorkspaceContent() {
                   disabled={running}
                   aria-label="开始分析"
                   title="开始分析"
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-white shadow-[0_4px_14px_rgba(0,0,0,0.22)] transition-all duration-150 hover:bg-[#0077e6] active:scale-95 disabled:opacity-45"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-white transition-all duration-150 hover:bg-primary-hover active:scale-95 disabled:opacity-45"
                 >
                   {running ? <SpinnerGap size={20} className="animate-spin" /> : <ArrowUp size={20} weight="bold" />}
                 </button>
@@ -449,34 +451,34 @@ function WorkspaceContent() {
 
             {/* @ 配方 联想（输入时） */}
             {mentionOpen && !recipeDropdown && (
-              <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-hairline bg-white text-ink shadow-[0_12px_40px_rgba(0,0,0,0.18)]">
+              <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-lg border border-hairline bg-white text-ink shadow-float">
                 <div className="max-h-60 overflow-auto py-1">
                   {filteredRecipes.length === 0 && filteredPersonas.length === 0 ? (
-                    <div className="px-4 py-3 text-[13px] text-ink-48">没有匹配的配方或人格</div>
+                    <div className="px-4 py-3 text-caption text-ink-48">没有匹配的配方或人格</div>
                   ) : (
                     <>
                       {filteredPersonas.map((p) => (
                         <button
                           key={p.id}
                           onClick={() => setPersona(p)}
-                          className="flex w-full items-center gap-2.5 px-4 py-2 text-left text-[14px] hover:bg-parchment"
+                          className="flex w-full items-center gap-2.5 px-4 py-2 text-left text-caption hover:bg-parchment"
                         >
                           <Avatar name={p.name} size="sm" />
                           <span>{p.name}</span>
-                          <span className="ml-auto text-[12px] text-ink-40">人物 · 讨论</span>
+                          <span className="ml-auto text-fine text-ink-40">人物 · 讨论</span>
                         </button>
                       ))}
                       {filteredRecipes.map((r) => (
                         <button
                           key={r.id}
                           onClick={() => setRecipe(r)}
-                          className="flex w-full items-center justify-between px-4 py-2.5 text-left text-[14px] hover:bg-parchment"
+                          className="flex w-full items-center justify-between px-4 py-2.5 text-left text-caption hover:bg-parchment"
                         >
                           <span className="flex items-center gap-2">
                             <TagSimple size={14} className="text-ink-40" />
                             {r.name}
                           </span>
-                          <span className="text-[12px] text-ink-40">{r.stepCount} 步</span>
+                          <span className="text-fine text-ink-40">{r.stepCount} 步</span>
                         </button>
                       ))}
                     </>
@@ -487,19 +489,19 @@ function WorkspaceContent() {
 
             {/* 选配方 下拉（chips 触发） */}
             {recipeDropdown && (
-              <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-hairline bg-white text-ink shadow-[0_12px_40px_rgba(0,0,0,0.18)]">
+              <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-lg border border-hairline bg-white text-ink shadow-float">
                 <div className="max-h-60 overflow-auto py-1">
                   {recipes.length === 0 ? (
-                    <div className="px-4 py-3 text-[13px] text-ink-48">还没有配方，请先新建配方</div>
+                    <div className="px-4 py-3 text-caption text-ink-48">还没有配方，请先新建配方</div>
                   ) : (
                     recipes.map((r) => (
                       <button
                         key={r.id}
                         onClick={() => setRecipe(r)}
-                        className="flex w-full items-center justify-between px-4 py-2.5 text-left text-[14px] hover:bg-parchment"
+                        className="flex w-full items-center justify-between px-4 py-2.5 text-left text-caption hover:bg-parchment"
                       >
                         <span>{r.name}</span>
-                        <span className="text-[12px] text-ink-40">{r.stepCount} 步</span>
+                        <span className="text-fine text-ink-40">{r.stepCount} 步</span>
                       </button>
                     ))
                   )}
@@ -509,10 +511,10 @@ function WorkspaceContent() {
 
             {/* 人格视角 下拉（chips 触发） */}
             {personaDropdown && (
-              <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-hairline bg-white text-ink shadow-[0_12px_40px_rgba(0,0,0,0.18)]">
+              <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-lg border border-hairline bg-white text-ink shadow-float">
                 <div className="max-h-60 overflow-auto py-1.5">
                   {personas.length === 0 ? (
-                    <div className="px-4 py-3 text-[13px] text-ink-48">还没有人格，请先新增</div>
+                    <div className="px-4 py-3 text-caption text-ink-48">还没有人格，请先新增</div>
                   ) : (
                     personas.map((p) => (
                       <button
@@ -521,7 +523,7 @@ function WorkspaceContent() {
                           setPersonaDropdown(false);
                           router.push(`/personas/${p.id}`);
                         }}
-                        className="flex w-full items-center gap-3 px-4 py-2 text-left text-[14px] hover:bg-parchment"
+                        className="flex w-full items-center gap-3 px-4 py-2 text-left text-caption hover:bg-parchment"
                       >
                         <Avatar name={p.name} size="sm" />
                         <span>{p.name}</span>
@@ -533,57 +535,58 @@ function WorkspaceContent() {
             )}
           </div>
 
-          <p className="text-center text-[13px] text-ink-40">可拖拽或上传 PDF / TXT / MD，内容将作为分析资料</p>
+          <p className="text-center text-caption text-ink-40">可拖拽或上传 PDF / TXT / MD，内容将作为分析资料</p>
 
-          {error && <p className="text-[14px] text-error">{error}</p>}
+          {error && <p className="text-caption text-error">{error}</p>}
         </div>
       </section>
 
-      {/* 分析工作区：竖版卡片流（≥3 列） */}
-      <section className="mx-auto max-w-[1440px] px-6 py-10">
-        <div className="mb-5 flex items-center justify-between">
-          <h2 className="text-[19px] font-semibold tracking-[-0.2px]">会话空间</h2>
-          <button
-            className="text-[13px] text-primary transition-colors hover:text-[#0077e6] hover:underline"
-            onClick={() => router.push("/spaces")}
-          >
-            全部空间 ›
-          </button>
-        </div>
-        <SpacesCards refreshKey={refreshKey} onNew={submit} />
-      </section>
-
-      {pickerOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6 backdrop-blur-sm">
-          <div className="fl-rise w-full max-w-md rounded-2xl bg-white p-6 shadow-[0_24px_80px_rgba(0,0,0,0.3)]">
-            <h3 className="mb-4 text-[18px] font-semibold tracking-[-0.2px]">选择分析配方</h3>
-            <div className="mb-4 max-h-64 space-y-2 overflow-auto">
-              {recipes.length === 0 ? (
-                <p className="text-[14px] text-ink-48">还没有配方，请先在「配方」页创建。</p>
-              ) : (
-                recipes.map((r) => (
-                  <button
-                    key={r.id}
-                    onClick={() => startRun(r.id)}
-                    className="flex w-full items-center justify-between rounded-xl border border-hairline bg-pearl px-4 py-3 text-left transition-colors hover:border-primary/40 hover:bg-parchment"
-                  >
-                    <span className="text-[14px] font-medium">{r.name}</span>
-                    <span className="text-[12px] text-ink-40">{r.stepCount} 个步骤</span>
-                  </button>
-                ))
-              )}
-            </div>
-            <div className="flex justify-end">
-              <button
-                onClick={() => setPickerOpen(false)}
-                className="rounded-full border border-primary/50 px-5 py-2.5 text-[15px] text-primary transition-colors hover:bg-primary/5"
-              >
-                取消
-              </button>
-            </div>
+      {/* 暗色瓦片（DESIGN.md product-tile-dark）：与上方浅色 hero 形成明暗节奏，
+          色彩变化本身就是分隔线；白卡片浮于深底 = 规范唯一允许的产品投影场景 */}
+      <section className="mt-6 bg-tile-1 py-14">
+        <div className="mx-auto max-w-[1440px] px-4 sm:px-6">
+          <div className="mb-5 flex items-center justify-between">
+            <h2 className="text-tagline font-semibold text-white">会话空间</h2>
+            <button
+              className="text-caption text-primary-on-dark transition-colors hover:text-white hover:underline"
+              onClick={() => router.push("/spaces")}
+            >
+              全部空间 ›
+            </button>
           </div>
+          <SpacesCards refreshKey={refreshKey} onNew={submit} />
         </div>
-      )}
+      </section>
+
+      {/* 选配方：统一走 Modal 基元（role=dialog / Escape / 焦点陷阱） */}
+      <Modal
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        title="选择分析配方"
+        className="max-w-md"
+        footer={
+          <Button variant="secondary" onClick={() => setPickerOpen(false)}>
+            取消
+          </Button>
+        }
+      >
+        <div className="space-y-2 p-5">
+          {recipes.length === 0 ? (
+            <p className="text-caption text-ink-48">还没有配方，请先在「配方」页创建。</p>
+          ) : (
+            recipes.map((r) => (
+              <button
+                key={r.id}
+                onClick={() => startRun(r.id)}
+                className="flex w-full items-center justify-between rounded-sm border border-hairline bg-pearl px-4 py-3 text-left transition-colors hover:border-primary/40 hover:bg-parchment"
+              >
+                <span className="text-caption font-semibold">{r.name}</span>
+                <span className="text-fine text-ink-40">{r.stepCount} 个步骤</span>
+              </button>
+            ))
+          )}
+        </div>
+      </Modal>
 
       {/* 隐藏文件输入（上传文件 chip 触发） */}
       <input

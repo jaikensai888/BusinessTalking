@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Brain,
   CaretDown,
@@ -37,6 +37,14 @@ function durationLabel(durationMs: number | null): string {
   return `${(durationMs / 1000).toFixed(1)}s`;
 }
 
+export function resolveTurnExpanded(
+  status: DshTurnView["status"],
+  manualExpanded: boolean | null,
+  collapsed: boolean,
+): boolean {
+  return manualExpanded ?? (status === "running" ? true : !collapsed);
+}
+
 function ToolStatus({ status }: { status: DshTurnView["tools"][number]["status"] }) {
   if (status === "running") return <SpinnerGap size={14} className="animate-spin text-primary" aria-label="执行中" />;
   if (status === "ok") return <CheckCircle size={14} weight="fill" className="text-success" aria-label="已完成" />;
@@ -48,6 +56,7 @@ function ToolStatus({ status }: { status: DshTurnView["tools"][number]["status"]
 export function DshTurnProcess({ turn }: DshTurnProcessProps) {
   const [manualExpanded, setManualExpanded] = useState<boolean | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const bodyRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (turn.status !== "running" || turn.startedAtMs === null) return;
@@ -55,7 +64,16 @@ export function DshTurnProcess({ turn }: DshTurnProcessProps) {
     return () => clearInterval(timer);
   }, [turn.status, turn.startedAtMs]);
 
-  const expanded = turn.status === "running" ? true : manualExpanded ?? !turn.collapsed;
+  const expanded = resolveTurnExpanded(turn.status, manualExpanded, turn.collapsed);
+
+  // 执行中内容流式增长时自动跟随到底部；用户向上翻阅则不抢滚动
+  useEffect(() => {
+    if (!expanded || turn.status !== "running") return;
+    const el = bodyRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (nearBottom) el.scrollTop = el.scrollHeight;
+  }, [expanded, turn.status, turn.reasoning, turn.tools, turn.steps, turn.liveAnswer]);
 
   const durationMs = turn.durationMs
     ?? (turn.startedAtMs === null ? null : Math.max(0, (turn.endedAtMs ?? now) - turn.startedAtMs));
@@ -65,15 +83,15 @@ export function DshTurnProcess({ turn }: DshTurnProcessProps) {
     : turn.status === "running" ? "正在处理" : turn.status === "completed" ? "已完成" : "未完成";
 
   return (
-    <section className="rounded-xl border border-hairline bg-white/80 shadow-[0_2px_10px_rgba(0,0,0,0.04)]" aria-label="DSH 回合过程">
+    <section className="rounded-lg border border-hairline bg-white/80" aria-label="DSH 回合过程">
       <button
         type="button"
         aria-expanded={expanded}
         onClick={() => setManualExpanded(!expanded)}
-        className="flex w-full items-center gap-2 px-3.5 py-2.5 text-left text-[12px] text-ink-60 transition-colors hover:bg-parchment/60"
+        className="flex w-full items-center gap-2 px-3.5 py-2.5 text-left text-fine text-ink-60 transition-colors hover:bg-parchment/60"
       >
         {expanded ? <CaretDown size={14} className="shrink-0 text-ink-40" /> : <CaretRight size={14} className="shrink-0 text-ink-40" />}
-        <span className="font-medium text-ink-80">{title}</span>
+        <span className="font-semibold text-ink-80">{title}</span>
         <span className="ml-auto flex items-center gap-1.5 text-ink-40">
           <Clock size={13} /> {durationLabel(durationMs)}
           {turn.status === "running" && <SpinnerGap size={13} className="animate-spin text-primary" />}
@@ -83,19 +101,22 @@ export function DshTurnProcess({ turn }: DshTurnProcessProps) {
       </button>
 
       {expanded && (
-        <div className="border-t border-divider-soft px-3.5 pb-3 pt-2.5">
+        <div
+          ref={bodyRef}
+          className="max-h-[min(60vh,480px)] overflow-y-auto overscroll-contain border-t border-divider-soft px-3.5 pb-3 pt-2.5"
+        >
           {turn.reasoning.map((item) => (
-            <div key={item.id} className="flex gap-2.5 border-l border-primary/20 py-1.5 pl-2.5 text-[12px] leading-5 text-ink-60">
+            <div key={item.id} className="flex gap-2.5 border-l border-primary/20 py-1.5 pl-2.5 text-fine leading-5 text-ink-60">
               <Brain size={15} weight="duotone" className="mt-0.5 shrink-0 text-primary" />
               <div className="min-w-0 flex-1">
-                <div className="mb-0.5 text-[11px] text-ink-40">思考{item.streaming ? " · 进行中" : ""}</div>
+                <div className="mb-0.5 text-fine text-ink-40">思考{item.streaming ? " · 进行中" : ""}</div>
                 <div className="whitespace-pre-wrap break-words">{item.text}</div>
               </div>
             </div>
           ))}
 
           {turn.steps.map((step) => (
-            <div key={step.id} className="flex items-center gap-2 border-l border-divider-soft py-1.5 pl-2.5 text-[12px] text-ink-48">
+            <div key={step.id} className="flex items-center gap-2 border-l border-divider-soft py-1.5 pl-2.5 text-fine text-ink-48">
               <ListChecks size={15} className="shrink-0 text-ink-40" />
               <span>{step.status === "running" ? "处理步骤" : step.status === "completed" ? "步骤完成" : "步骤失败"}</span>
               {step.status === "running" && <SpinnerGap size={13} className="animate-spin text-primary" />}
@@ -103,17 +124,17 @@ export function DshTurnProcess({ turn }: DshTurnProcessProps) {
           ))}
 
           {turn.tools.map((tool) => (
-            <div key={tool.callId} className="my-1.5 rounded-lg border border-divider-soft bg-parchment/45 px-2.5 py-2">
-              <div className="flex items-center gap-2 text-[12px] text-ink-80">
+            <div key={tool.callId} className="my-1.5 rounded-sm border border-divider-soft bg-parchment/45 px-2.5 py-2">
+              <div className="flex items-center gap-2 text-fine text-ink-80">
                 <Wrench size={14} className="shrink-0 text-ink-48" />
-                <span className="truncate font-medium">{tool.name}</span>
+                <span className="truncate font-semibold">{tool.name}</span>
                 <span className="ml-auto shrink-0"><ToolStatus status={tool.status} /></span>
               </div>
               {displayValue(tool.input) && (
-                <div className="mt-1 whitespace-pre-wrap break-words text-[11px] leading-4 text-ink-48">输入：{displayValue(tool.input)}</div>
+                <div className="mt-1 whitespace-pre-wrap break-words text-fine leading-4 text-ink-48">输入：{displayValue(tool.input)}</div>
               )}
               {displayValue(tool.output) && (
-                <div className={cn("mt-1 whitespace-pre-wrap break-words text-[11px] leading-4", tool.status === "error" ? "text-error" : "text-ink-48")}>
+                <div className={cn("mt-1 whitespace-pre-wrap break-words text-fine leading-4", tool.status === "error" ? "text-error" : "text-ink-48")}>
                   输出：{displayValue(tool.output)}
                 </div>
               )}
@@ -121,21 +142,21 @@ export function DshTurnProcess({ turn }: DshTurnProcessProps) {
           ))}
 
           {!turn.hasFinalMessage && turn.liveAnswer && (
-            <div className="mt-2 rounded-lg border border-primary/15 bg-primary/5 px-2.5 py-2 text-[12px] leading-5 text-ink-80">
-              <div className="mb-0.5 text-[11px] text-primary">回复生成中</div>
+            <div className="mt-2 rounded-sm border border-primary/15 bg-primary/5 px-2.5 py-2 text-fine leading-5 text-ink-80">
+              <div className="mb-0.5 text-fine text-primary">回复生成中</div>
               <div className="whitespace-pre-wrap break-words">{turn.liveAnswer}</div>
             </div>
           )}
 
           {turn.error && (
-            <div className="mt-2 flex gap-2 rounded-lg bg-error/5 px-2.5 py-2 text-[12px] leading-5 text-error">
+            <div className="mt-2 flex gap-2 rounded-sm bg-error/5 px-2.5 py-2 text-fine leading-5 text-error">
               <WarningCircle size={15} className="mt-0.5 shrink-0" />
               <span className="break-words">{turn.error}</span>
             </div>
           )}
 
           {detailCount === 0 && !turn.error && (
-            <div className="text-[12px] text-ink-40">已连接 DSH 会话，等待过程事件…</div>
+            <div className="text-fine text-ink-40">已连接 DSH 会话，等待过程事件…</div>
           )}
         </div>
       )}

@@ -18,6 +18,8 @@ const mocks = vi.hoisted(() => {
     mockTurnUpdate: vi.fn(),
     mockRunTurnViaProcess: vi.fn(),
     mockRunDiscussionDshTurn: vi.fn(),
+    mockAcquireDiscussionRun: vi.fn(),
+    mockReleaseDiscussionRun: vi.fn(),
   };
 });
 
@@ -35,6 +37,8 @@ const {
   mockTurnUpdate,
   mockRunTurnViaProcess,
   mockRunDiscussionDshTurn,
+  mockAcquireDiscussionRun,
+  mockReleaseDiscussionRun,
 } = mocks;
 
 vi.mock("@/lib/db", () => ({
@@ -94,6 +98,10 @@ vi.mock("@/lib/runtime/turn-process", () => ({
 vi.mock("@/lib/discussion/run-dsh-turn", () => ({
   runDiscussionDshTurn: (...a: unknown[]) => mockRunDiscussionDshTurn(...a),
 }));
+vi.mock("@/lib/discussion/run-lease", () => ({
+  acquireDiscussionRun: (...a: unknown[]) => mockAcquireDiscussionRun(...a),
+  releaseDiscussionRun: (...a: unknown[]) => mockReleaseDiscussionRun(...a),
+}));
 
 import { runOneOnOneTurn } from "@/lib/discussion/dsh-service";
 
@@ -143,6 +151,8 @@ describe("runOneOnOneTurn (P0 fail-closed)", () => {
     mockPersonaFindUnique.mockReset();
     mockRunTurnViaProcess.mockReset();
     mockRunDiscussionDshTurn.mockReset();
+    mockAcquireDiscussionRun.mockReset().mockResolvedValue({ runId: "run-1", leaseUntil: new Date(Date.now() + 60_000) });
+    mockReleaseDiscussionRun.mockReset().mockResolvedValue(true);
   });
 
   it("marks turn/participant/discussion failed when the DSH runner throws (no AI SDK fallback)", async () => {

@@ -130,11 +130,11 @@ export function LLMSettingsForm() {
   return (
     <div className="space-y-5">
       <div className="grid gap-2">
-        <label className="text-[14px] font-semibold text-ink-80">服务商</label>
+        <label className="text-caption font-semibold text-ink-80">服务商</label>
         <select
           value={provider}
           onChange={(e) => setProvider(e.target.value as "openai" | "anthropic")}
-          className="h-11 bg-white border border-hairline rounded-lg px-3 text-[15px] outline-none focus:border-primary"
+          className="h-11 bg-white border border-hairline rounded-sm px-3 text-caption outline-none focus:border-primary"
         >
           {PROVIDERS.map((p) => (
             <option key={p.value} value={p.value}>
@@ -142,30 +142,30 @@ export function LLMSettingsForm() {
             </option>
           ))}
         </select>
-        <p className="text-[12px] text-ink-48">{PROVIDERS.find((p) => p.value === provider)?.description}</p>
+        <p className="text-fine text-ink-48">{PROVIDERS.find((p) => p.value === provider)?.description}</p>
       </div>
 
       {provider === "openai" && (
         <div className="grid gap-2">
-          <label className="text-[14px] font-semibold text-ink-80">接口地址（Base URL）</label>
+          <label className="text-caption font-semibold text-ink-80">接口地址（Base URL）</label>
           <div className="flex gap-2">
             <Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.openai.com/v1" />
             {OPENAI_PRESETS.map((p) => (
               <button
                 key={p.label}
                 onClick={() => setBaseUrl(p.baseUrl)}
-                className="shrink-0 rounded-lg border border-hairline px-3 py-2 text-[13px] text-ink-60 transition-colors hover:border-primary/40 hover:text-ink"
+                className="shrink-0 rounded-sm border border-hairline px-3 py-2 text-caption text-ink-60 transition-colors hover:border-primary/40 hover:text-ink"
               >
                 {p.label}
               </button>
             ))}
           </div>
-          <p className="text-[12px] text-ink-48">DeepSeek 等 OpenAI 兼容服务：选 DeepSeek，下方模型填 deepseek-v4-flash 等。</p>
+          <p className="text-fine text-ink-48">DeepSeek 等 OpenAI 兼容服务：选 DeepSeek，下方模型填 deepseek-v4-flash 等。</p>
         </div>
       )}
 
       <div className="grid gap-2">
-        <label className="text-[14px] font-semibold text-ink-80">API Key</label>
+        <label className="text-caption font-semibold text-ink-80">API Key</label>
         <div className="flex gap-2">
           <Input
             type="text"
@@ -178,14 +178,14 @@ export function LLMSettingsForm() {
           </Button>
         </div>
         {apiKeyConfigured && (
-          <p className="text-[12px] text-ink-48">
+          <p className="text-fine text-ink-48">
             已保存，当前显示为密文（{apiKey || masked}）；保持不动则不变，输入新 Key 可覆盖。
           </p>
         )}
       </div>
 
       <div className="grid gap-2">
-        <label className="text-[14px] font-semibold text-ink-80">
+        <label className="text-caption font-semibold text-ink-80">
           模型列表（每行一个，可填多个）{" "}
           <span className="font-normal text-ink-40">如 deepseek-v4-flash / deepseek-v4-pro / deepseek-v4-flash-vision-exp</span>
         </label>
@@ -194,17 +194,17 @@ export function LLMSettingsForm() {
           onChange={(e) => onModelsChange(e.target.value)}
           rows={4}
           placeholder={"deepseek-v4-flash\ndeepseek-v4-pro\ndeepseek-v4-flash-vision-exp"}
-          className="bg-white border border-hairline rounded-[8px] px-3 py-2 text-[15px] font-mono outline-none focus:border-primary resize-y"
+          className="bg-white border border-hairline rounded-sm px-3 py-2 text-caption font-mono outline-none focus:border-primary resize-y"
         />
       </div>
 
       {models.length > 0 && (
         <div className="grid gap-2">
-          <label className="text-[14px] font-semibold text-ink-80">默认模型</label>
+          <label className="text-caption font-semibold text-ink-80">默认模型</label>
           <select
             value={defaultModel}
             onChange={(e) => setDefaultModel(e.target.value)}
-            className="bg-white border border-hairline rounded-[8px] px-3 py-2 text-[17px] outline-none focus:border-primary"
+            className="bg-white border border-hairline rounded-sm px-3 py-2 text-body outline-none focus:border-primary"
           >
             {models.map((m) => (
               <option key={m} value={m}>
@@ -212,12 +212,12 @@ export function LLMSettingsForm() {
               </option>
             ))}
           </select>
-          <p className="text-[12px] text-ink-48">分析运行默认使用该模型（后续可按配方/步骤覆盖）。</p>
+          <p className="text-fine text-ink-48">分析运行默认使用该模型（后续可按配方/步骤覆盖）。</p>
         </div>
       )}
 
       <div className="grid gap-2">
-        <label className="text-[14px] font-semibold text-ink-80">超时时间（秒）</label>
+        <label className="text-caption font-semibold text-ink-80">超时时间（秒）</label>
         <Input
           type="number"
           min={30}
@@ -231,10 +231,10 @@ export function LLMSettingsForm() {
         <p
           className={
             status.kind === "ok"
-              ? "text-[14px] text-success"
+              ? "text-caption text-success"
               : status.kind === "error"
-                ? "text-[14px] text-error"
-                : "text-[14px] text-ink-48"
+                ? "text-caption text-error"
+                : "text-caption text-ink-48"
           }
         >
           {status.text}

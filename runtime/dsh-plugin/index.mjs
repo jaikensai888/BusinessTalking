@@ -65,8 +65,8 @@ function candidateRecord(candidate) {
   return { candidate, locator };
 }
 
-/** 只读 web_search：访问 BT 内部 endpoint（仅当 manifest.toolPolicy.webSearch 且内部 endpoint/token 存在时注册） */
-function buildWebSearchTool() {
+/** 只读 web_search：通过 DSH ctx.web 调用已配置的原生搜索 Provider。 */
+function buildWebSearchTool(web) {
   return defineTool({
     name: P0_WEB_SEARCH,
     description: "联网搜索最新的产品、竞品、参数、市场数据。需要具体事实时使用。",
@@ -84,17 +84,13 @@ function buildWebSearchTool() {
       if (!manifest.toolPolicy?.webSearch) {
         throw dshError("DSH_SKILL_NOT_ALLOWED", "web_search 未在 manifest 允许");
       }
-      const base = process.env.BT_INTERNAL_SEARCH_URL;
-      const token = process.env.BT_INTERNAL_TOKEN;
-      if (!base || !token) throw new Error("web_search 不可用：内部 endpoint 未配置");
-      const res = await fetch(base, {
-        method: "POST",
-        headers: { "content-type": "application/json", "x-bt-internal-token": token },
-        body: JSON.stringify({ query: args.query, maxResults: args.maxResults ?? 8 }),
-        signal: AbortSignal.timeout(20_000),
-      });
-      if (!res.ok) throw new Error(`web_search 上游失败：${res.status}`);
-      return await res.json();
+      const query = typeof args.query === "string" ? args.query.trim() : "";
+      if (!query) throw new Error("web_search query 不能为空");
+      const maxResults = args.maxResults === undefined ? 8 : args.maxResults;
+      if (!Number.isSafeInteger(maxResults) || maxResults < 1 || maxResults > 20) {
+        throw new Error("web_search maxResults 必须是 1-20 的整数");
+      }
+      return await web.search({ query, maxResults }, exec.signal);
     },
   });
 }
@@ -215,6 +211,7 @@ async function requestApprovalOverLocalHttp({ manifest, request, endpoint, token
     approvalId,
     discussionId: manifest.discussionId,
     sessionId,
+    sessionKind: manifest.kind,
     toolName: typeof request.toolName === "string" ? request.toolName : "unknown",
     ...(typeof request.callId === "string" ? { callId: request.callId } : {}),
     ...(typeof request.reason === "string" ? { reason: request.reason.slice(0, 1000) } : {}),
@@ -256,7 +253,7 @@ function mountAgentScope(agent) {
   // Cordis service properties are only available from an injected context.
   // `agent.ctx` itself is a context proxy, not a service bag; reading
   // `agent.ctx.skills` directly fails with "without inject" in the real DSH.
-  return agent.ctx.inject(["skills", "systemPrompt", "tools"], (scoped) => {
+  return agent.ctx.inject(["skills", "systemPrompt", "tools", "web"], (scoped) => {
     const after = new Set(P0_ALLOWED_TOOLS);
     if (manifest.toolPolicy?.webSearch) after.add(P0_WEB_SEARCH);
 
@@ -394,7 +391,7 @@ function mountAgentScope(agent) {
 
     // scoped 只读工具（read_skill_reference 必注册；web_search 仅 manifest 允许时）
     scoped.tools.register(buildReadSkillRefTool());
-    if (manifest.toolPolicy?.webSearch) scoped.tools.register(buildWebSearchTool());
+    if (manifest.toolPolicy?.webSearch) scoped.tools.register(buildWebSearchTool(scoped.web));
 
     // `restrict()` filters only inherited/global tools. Scoped registrations
     // remain visible by design, so do not pass read_skill_reference or

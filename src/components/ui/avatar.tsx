@@ -2,10 +2,10 @@ import { cn } from "@/lib/utils";
 import { avatarColor } from "@/lib/color";
 
 const SIZES = {
-  sm: "h-6 w-6 text-[11px]",
-  md: "h-10 w-10 text-[15px]",
-  lg: "h-14 w-14 text-[20px]",
-  xl: "h-20 w-20 text-[28px]",
+  sm: "h-6 w-6 text-fine",
+  md: "h-10 w-10 text-caption",
+  lg: "h-14 w-14 text-tagline",
+  xl: "h-20 w-20 text-lead",
 } as const;
 
 /** DESIGN.md 7.6 头像（精修）：默认正圆；卡片主视觉可通过 className 覆盖为方形 */
@@ -32,7 +32,7 @@ export function Avatar({
     <div
       className={cn(
         "rounded-full flex items-center justify-center text-white font-semibold select-none shrink-0",
-        "ring-2 ring-white shadow-[0_1px_3px_rgba(0,0,0,0.12)]",
+        "ring-2 ring-white",
         SIZES[size],
         className
       )}

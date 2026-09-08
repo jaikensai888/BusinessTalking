@@ -41,7 +41,7 @@ describe("DSH approval routes", () => {
   beforeEach(() => {
     process.env.BT_DSH_APPROVAL_TOKEN = "internal-secret";
     mocks.wait.mockReset().mockResolvedValue("allowed-once");
-    mocks.decide.mockReset().mockReturnValue("accepted");
+    mocks.decide.mockReset().mockResolvedValue("accepted");
     mocks.listPending.mockReset().mockReturnValue([]);
     mocks.discussionFindUnique.mockReset().mockResolvedValue({
       id: "d1", permissionMode: "read-only", approvalPolicy: "ask", archivedAt: null,
@@ -64,16 +64,16 @@ describe("DSH approval routes", () => {
     expect(malformed.status).toBe(400);
 
     const response = await internalPost(jsonRequest("http://localhost/api/internal/dsh/approval", {
-      approvalId: "a1", discussionId: "d1", sessionId: "s1", toolName: "tool", reason: "why",
+      approvalId: "a1", discussionId: "d1", sessionId: "s1", sessionKind: "persona", toolName: "tool", reason: "why",
     }, { "x-bt-internal-token": "internal-secret" }));
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ approvalId: "a1", outcome: "allowed-once" });
     expect(mocks.wait).toHaveBeenCalledWith(expect.objectContaining({
-      approvalId: "a1", discussionId: "d1", sessionId: "s1", toolName: "tool", reason: "why",
+      approvalId: "a1", discussionId: "d1", sessionId: "s1", sessionKind: "persona", toolName: "tool", reason: "why",
     }), expect.anything());
   });
 
-  it("accepts only allowed-once/rejected from the browser and maps bridge status", async () => {
+  it("accepts only one-shot or discussion-scoped outcomes from the browser", async () => {
     const invalid = await approvalPost(jsonRequest("http://localhost/api/v1/discussions/d1/approvals/a1", {
       outcome: "cancelled",
     }), { params: Promise.resolve({ id: "d1", approvalId: "a1" }) });
@@ -85,20 +85,20 @@ describe("DSH approval routes", () => {
     expect(accepted.status).toBe(200);
     expect(mocks.decide).toHaveBeenCalledWith("d1", "a1", "allowed-once");
 
-    mocks.decide.mockReturnValueOnce("conflict");
+    mocks.decide.mockResolvedValueOnce("conflict");
     const conflict = await approvalPost(jsonRequest("http://localhost/api/v1/discussions/d1/approvals/a1", {
-      outcome: "rejected",
+      outcome: "rejected-discussion",
     }), { params: Promise.resolve({ id: "d1", approvalId: "a1" }) });
     expect(conflict.status).toBe(409);
   });
 
-  it("accepts a session-scoped approval from the browser", async () => {
+  it("rejects the old session-scoped outcome", async () => {
     const response = await approvalPost(jsonRequest("http://localhost/api/v1/discussions/d1/approvals/a1", {
       outcome: "allowed-session",
     }), { params: Promise.resolve({ id: "d1", approvalId: "a1" }) });
 
-    expect(response.status).toBe(200);
-    expect(mocks.decide).toHaveBeenCalledWith("d1", "a1", "allowed-session");
+    expect(response.status).toBe(400);
+    expect(mocks.decide).not.toHaveBeenCalled();
   });
 
   it("updates only read-only Discussion permissions and blocks active/pending turns", async () => {

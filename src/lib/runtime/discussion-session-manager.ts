@@ -50,9 +50,7 @@ function validateInput(input: DiscussionSessionRunInput): void {
 /** Child environment is fixed at spawn time; detect bridge config drift before reuse. */
 function sameBridgeOptions(left: DshSessionProcessOptions, right: DshSessionProcessOptions): boolean {
   return left.approvalUrl === right.approvalUrl
-    && left.approvalToken === right.approvalToken
-    && left.internalSearchUrl === right.internalSearchUrl
-    && left.internalSearchToken === right.internalSearchToken;
+    && left.approvalToken === right.approvalToken;
 }
 
 /** Registry of one persistent DSH runner per Discussion. */

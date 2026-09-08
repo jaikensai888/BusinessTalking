@@ -32,6 +32,7 @@ function approval(type: "approval-request" | "approval-decision", approvalId: st
     approvalId,
     discussionId: "d1",
     sessionId: "s1",
+    scope: "discussion",
     toolName: "tool-bash",
     callId: "call-1",
     reason: "需要用户确认",
@@ -93,6 +94,7 @@ describe("DSH turn projection", () => {
     let state = emptyProcessState();
     state = reduceDiscussionEvent(state, approval("approval-request", "a1"));
     expect(state.pendingApprovals).toHaveLength(1);
+    expect(state.pendingApprovals[0]?.scope).toBe("discussion");
     state = reduceDiscussionEvent(state, approval("approval-decision", "a1", "allowed-once"));
     expect(state.pendingApprovals).toHaveLength(0);
   });

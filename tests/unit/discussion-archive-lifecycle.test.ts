@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   discussionDelete: vi.fn(),
   participantUpdateMany: vi.fn(),
   closeDiscussion: vi.fn(),
+  capabilityGrantDeleteMany: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -16,6 +17,7 @@ vi.mock("@/lib/db", () => ({
       delete: mocks.discussionDelete,
     },
     discussionParticipant: { updateMany: mocks.participantUpdateMany },
+    discussionCapabilityGrant: { deleteMany: mocks.capabilityGrantDeleteMany },
   },
 }));
 
@@ -31,6 +33,7 @@ beforeEach(() => {
   mocks.discussionDelete.mockResolvedValue({});
   mocks.participantUpdateMany.mockResolvedValue({ count: 1 });
   mocks.closeDiscussion.mockResolvedValue(undefined);
+  mocks.capabilityGrantDeleteMany.mockResolvedValue({ count: 1 });
 });
 
 describe("discussion/session archive lifecycle", () => {
@@ -85,5 +88,6 @@ describe("discussion/session archive lifecycle", () => {
 
     expect(order).toEqual(["close", "delete"]);
     expect(mocks.closeDiscussion).toHaveBeenCalledWith("d1", { reason: "delete" });
+    expect(mocks.capabilityGrantDeleteMany).toHaveBeenCalledWith({ where: { discussionId: "d1" } });
   });
 });

@@ -245,6 +245,15 @@ Persona 回合、消息写入和状态更新必须携带当前 `runId` 或能够
 
 并行任务必须先全部 settled，再统一执行本轮最终状态判断，避免一个任务的异常导致其他 Promise 未被观察。
 
+## 7.5 本次实现落点
+
+- run lease 复用 `Discussion.activeRunId` 与 `Discussion.runLeaseUntil` 两个字段，使用条件 `updateMany` 获取、续租和释放；没有额外建立 lease 表。
+- Discussion capability 使用 `DiscussionCapabilityGrant` 持久化，目前 P0 只允许 `web_search`，状态只有 `allowed`/`denied`；pending waiter 仍由进程内 Bridge 管理。
+- Persona 同轮并发上限由 `BT_DSH_MAX_PARALLEL_PERSONAS` 控制，默认 4，最大 8；同一 runner 内不同 Session 复用现有 request/session 分流，单 Session 仍 busy。
+- `runId` 同时写入 `DiscussionTurn` 和 `inputSnapshot`。DSH turn 在启动与提交完成前检查当前 Discussion lease，过期结果不会提交 completed。
+- 删除 Discussion 会在物理删除 DB 行前显式删除 capability grant；归档保留 grant，以支持可恢复归档继续沿用原讨论授权策略。
+- Moderator 仍只接收本轮真实消息 ID，不接收完整 Persona 正文；这是当前 P0 明确保留的限制。
+
 ## 8. 明确不纳入本次设计
 
 以下内容保持现状，不因并行改造自动扩大范围：

@@ -37,8 +37,6 @@ describe("DshSessionProcess", () => {
       provider: "provider",
       model: "model",
       apiKey: "secret",
-      internalSearchUrl: "http://127.0.0.1:3001/api/internal/dsh/web-search",
-      internalSearchToken: "internal-token",
     });
     expect(env.BT_DSH_SESSION_ID).toBeUndefined();
     expect(env.BT_DSH_PROMPT).toBeUndefined();
@@ -46,8 +44,6 @@ describe("DshSessionProcess", () => {
     expect(env.BT_DSH_PROVIDER).toBe("provider");
     expect(env.BT_DSH_MODEL).toBe("model");
     expect(env.BT_DSH_PATCHES).toBe("base.patch");
-    expect(env.BT_INTERNAL_SEARCH_URL).toBe("http://127.0.0.1:3001/api/internal/dsh/web-search");
-    expect(env.BT_INTERNAL_TOKEN).toBe("internal-token");
   });
 
   it("receives ready before accepting a run", async () => {

@@ -17,6 +17,7 @@ import {
   type RuntimeSessionManifest,
 } from "@/lib/dsh/manifest";
 import { getDiscussionSessionManager, getDshTurnConfig } from "@/lib/runtime/singleton";
+import { acquireDiscussionRun, releaseDiscussionRun } from "./run-lease";
 import { publish } from "./broadcast";
 import { runDiscussionDshTurn } from "./run-dsh-turn";
 import { DiscussionArchivedError, DshError, DshManifestError } from "@/lib/dsh/errors";
@@ -400,20 +401,35 @@ export async function runOneOnOneTurn(
     };
   }
 
-  await prisma.discussion.update({ where: { id: discussionId }, data: { status: "running" } });
-  await prisma.discussionParticipant.update({ where: { id: participant.id }, data: { status: "running" } });
-  publish(discussionId, { type: "change" });
+  const lease = await acquireDiscussionRun(discussionId);
+  if (!lease) {
+    return {
+      participantId: participant.id,
+      sessionId: participant.dshSessionId,
+      finalText: "",
+      eventsWritten: 0,
+      status: "failed",
+      errorCode: "DSH_SESSION_BUSY",
+      error: "该讨论已有回合正在运行，请稍后重试",
+    };
+  }
 
   try {
+    await prisma.discussion.update({ where: { id: discussionId }, data: { status: "running" } });
+    await prisma.discussionParticipant.update({ where: { id: participant.id }, data: { status: "running" } });
+    publish(discussionId, { type: "change" });
+
+    const runId = lease.runId;
     const result = await runDiscussionDshTurn({
       discussionId,
+      runId,
       participantId: participant.id,
       sessionId: participant.dshSessionId,
       kind: "persona",
       round: 0,
       attempt: 1,
       prompt,
-      inputSnapshot: { prompt, stateVersion: d.stateVersion ?? 0 } as Prisma.InputJsonValue,
+      inputSnapshot: { runId, prompt, stateVersion: d.stateVersion ?? 0 } as Prisma.InputJsonValue,
       personaId,
       sender: persona.name,
     });
@@ -481,6 +497,8 @@ export async function runOneOnOneTurn(
       errorCode: dshErr?.code ?? "DSH_PROTOCOL_FAILED",
       error: (dshErr?.message ?? err.message).slice(0, 300),
     };
+  } finally {
+    await releaseDiscussionRun(discussionId, lease.runId);
   }
 }
 

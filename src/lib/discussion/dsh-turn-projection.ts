@@ -7,6 +7,7 @@ export interface DiscussionApprovalProjectionEvent {
   approvalId: string;
   discussionId: string;
   sessionId: string;
+  scope?: "discussion" | "session";
   toolName: string;
   callId?: string;
   reason?: string;
@@ -54,6 +55,7 @@ export interface PendingDiscussionApproval {
   approvalId: string;
   discussionId: string;
   sessionId: string;
+  scope?: "discussion" | "session";
   toolName: string;
   callId?: string;
   reason?: string;
@@ -175,11 +177,16 @@ function approvalFromDurableEvent(event: DiscussionLiveEvent): PendingDiscussion
   if (event.eventType !== "approval/asked") return null;
   const id = event.data.approvalId ?? event.data.id;
   if (typeof id !== "string" || !id) return null;
+  const toolName = safeText(event.data.toolName, 300) || "unknown";
+  const eventScope = event.data.scope === "discussion" || event.data.scope === "session"
+    ? event.data.scope
+    : toolName === "web_search" ? "discussion" : "session";
   return {
     approvalId: id,
     discussionId: event.discussionId,
     sessionId: event.sessionId,
-    toolName: safeText(event.data.toolName, 300) || "unknown",
+    toolName,
+    scope: eventScope,
     ...(typeof event.data.callId === "string" ? { callId: event.data.callId } : {}),
     ...(typeof event.data.reason === "string" ? { reason: safeText(event.data.reason, 2_000) } : {}),
     status: "pending",
@@ -193,6 +200,7 @@ function reduceApproval(state: DshProcessState, event: DiscussionApprovalProject
       approvalId: event.approvalId,
       discussionId: event.discussionId,
       sessionId: event.sessionId,
+      ...(event.scope ? { scope: event.scope } : {}),
       toolName: safeText(event.toolName, 300) || "unknown",
       ...(event.callId ? { callId: event.callId } : {}),
       ...(event.reason ? { reason: safeText(event.reason, 2_000) } : {}),

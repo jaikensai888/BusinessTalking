@@ -25,8 +25,8 @@ export function EmptyState({
       <div className="flex h-12 w-12 items-center justify-center rounded-full bg-parchment text-ink-40">
         <IconComponent size={24} weight="regular" />
       </div>
-      <p className="text-[15px] font-semibold text-ink">{title}</p>
-      {description && <p className="max-w-sm text-[13px] leading-[1.5] text-ink-48">{description}</p>}
+      <p className="text-caption font-semibold text-ink">{title}</p>
+      {description && <p className="max-w-sm text-caption leading-[1.5] text-ink-48">{description}</p>}
       {action && <div className="mt-2">{action}</div>}
     </div>
   );

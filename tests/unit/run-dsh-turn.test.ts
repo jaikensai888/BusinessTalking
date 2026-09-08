@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   getDiscussionSessionConfig: vi.fn(),
   getDiscussionSessionManager: vi.fn(),
   ingestDiscussionEvent: vi.fn(),
+  isDiscussionRunOwner: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -40,6 +41,10 @@ vi.mock("@/lib/discussion/event-ledger", () => ({
 
 vi.mock("@/lib/discussion/broadcast", () => ({ publish: vi.fn() }));
 
+vi.mock("@/lib/discussion/run-lease", () => ({
+  isDiscussionRunOwner: (...args: unknown[]) => mocks.isDiscussionRunOwner(...args),
+}));
+
 import { runDiscussionDshTurn } from "@/lib/discussion/run-dsh-turn";
 import { DiscussionArchivedError, DshProtocolError, DshSessionBusyError } from "@/lib/dsh/errors";
 
@@ -63,6 +68,7 @@ function notification(sessionId: string, seq: number, eventType: string, data: R
 function input(overrides: Partial<Parameters<typeof runDiscussionDshTurn>[0]> = {}) {
   return {
     discussionId: "d1",
+    runId: "run-1",
     participantId: "p1",
     sessionId: "stable-session-p1",
     kind: "persona" as const,
@@ -90,6 +96,7 @@ beforeEach(() => {
     finalText: "来自 assistant/message 的真实回复",
     sourceEventId: "event-assistant-2",
   });
+  mocks.isDiscussionRunOwner.mockResolvedValue(true);
 });
 
 describe("runDiscussionDshTurn", () => {
@@ -137,6 +144,9 @@ describe("runDiscussionDshTurn", () => {
       sessionId: "stable-session-p1",
       profile: PROFILE,
       processOptions: PROCESS_OPTIONS,
+    }));
+    expect(mocks.turnCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ discussionId: "d1", runId: "run-1" }),
     }));
     expect(mocks.messageUpdate).toHaveBeenCalledWith({
       where: { sourceEventId: "event-assistant-2" },
@@ -207,5 +217,21 @@ describe("runDiscussionDshTurn", () => {
     expect(mocks.participantUpdate).not.toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: "failed" }),
     }));
+  });
+
+  it("requires a non-empty run id before starting a durable turn", async () => {
+    await expect(runDiscussionDshTurn(input({ runId: "" }))).rejects.toThrow("runId");
+    expect(mocks.turnCreate).not.toHaveBeenCalled();
+  });
+
+  it("does not start or complete a turn after the Discussion run lease is lost", async () => {
+    mocks.isDiscussionRunOwner.mockResolvedValue(false);
+    const manager = { run: vi.fn() };
+    mocks.getDiscussionSessionManager.mockReturnValue(manager);
+
+    await expect(runDiscussionDshTurn(input())).rejects.toMatchObject({ code: "DISCUSSION_RUN_LEASE_LOST" });
+    expect(manager.run).not.toHaveBeenCalled();
+    expect(mocks.turnCreate).not.toHaveBeenCalled();
+    expect(mocks.turnUpdate).not.toHaveBeenCalled();
   });
 });

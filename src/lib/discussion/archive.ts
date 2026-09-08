@@ -11,6 +11,7 @@ import { prisma } from "@/lib/db";
 import { deleteManifest, readManifest } from "@/lib/dsh/manifest";
 import { DiscussionArchivedError } from "@/lib/dsh/errors";
 import { getDiscussionSessionManager } from "@/lib/runtime/singleton";
+import { deleteDiscussionCapabilityGrants } from "./capability-grant";
 
 /** 默认保留天数（配置可覆盖） */
 const DEFAULT_TTL_DAYS = Number(process.env.DSH_RETENTION_DAYS ?? 30);
@@ -284,6 +285,7 @@ export async function deleteDiscussion(id: string): Promise<{ id: string; delete
   });
 
   await cleanupDiscussionArtifacts(id, d);
+  await deleteDiscussionCapabilityGrants(id);
   await prisma.discussion.delete({ where: { id } });
   return { id, deleted: true };
 }
@@ -363,6 +365,7 @@ export async function purgeDiscussion(id: string): Promise<boolean> {
   await cleanupDiscussionArtifacts(id, d);
 
   // 物理删除 DB 记录（AgentEvent/DiscussionTurn/Message/Artifact 走 cascade）
+  await deleteDiscussionCapabilityGrants(id);
   await prisma.discussion.delete({ where: { id } });
   return true;
 }

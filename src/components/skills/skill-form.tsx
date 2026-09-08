@@ -96,15 +96,15 @@ export function SkillForm({
     <div className="bg-white border border-hairline rounded-lg p-8 max-w-3xl space-y-6">
       <div className="grid grid-cols-2 gap-4">
         <div className="grid gap-2">
-          <label className="text-[14px] font-semibold text-ink-80">名称 *</label>
+          <label className="text-caption font-semibold text-ink-80">名称 *</label>
           <Input value={form.name} onChange={set("name")} placeholder="如：商业模式诊断" />
         </div>
         <div className="grid gap-2">
-          <label className="text-[14px] font-semibold text-ink-80">分类</label>
+          <label className="text-caption font-semibold text-ink-80">分类</label>
           <select
             value={form.category}
             onChange={set("category")}
-            className="bg-white border border-hairline rounded-[8px] px-3 py-2 text-[17px] outline-none focus:border-primary"
+            className="bg-white border border-hairline rounded-sm px-3 py-2 text-body outline-none focus:border-primary"
           >
             {CATEGORIES.map((c) => (
               <option key={c} value={c}>
@@ -116,56 +116,56 @@ export function SkillForm({
       </div>
 
       <div className="grid gap-2">
-        <label className="text-[14px] font-semibold text-ink-80">描述</label>
+        <label className="text-caption font-semibold text-ink-80">描述</label>
         <textarea
           value={form.description}
           onChange={set("description")}
           rows={2}
           placeholder="技能说明（列表展示用）"
-          className="bg-white border border-hairline rounded-[8px] px-3 py-2 text-[17px] outline-none focus:border-primary resize-y"
+          className="bg-white border border-hairline rounded-sm px-3 py-2 text-body outline-none focus:border-primary resize-y"
         />
       </div>
 
       <div className="grid gap-2">
-        <label className="text-[14px] font-semibold text-ink-80">指令内容 *（将注入 LLM，支持 Markdown）</label>
+        <label className="text-caption font-semibold text-ink-80">指令内容 *（将注入 LLM，支持 Markdown）</label>
         <textarea
           value={form.instructions}
           onChange={set("instructions")}
           rows={8}
           placeholder="完整指令…"
-          className="bg-white border border-hairline rounded-[8px] px-3 py-2 text-[17px] font-mono outline-none focus:border-primary resize-y"
+          className="bg-white border border-hairline rounded-sm px-3 py-2 text-body font-mono outline-none focus:border-primary resize-y"
         />
       </div>
 
       <div className="grid grid-cols-2 gap-4">
         <div className="grid gap-2">
-          <label className="text-[14px] font-semibold text-ink-80">输入 Schema（JSON，可空）</label>
+          <label className="text-caption font-semibold text-ink-80">输入 Schema（JSON，可空）</label>
           <textarea
             value={form.inputSchema}
             onChange={set("inputSchema")}
             rows={6}
             placeholder='{"type":"object","properties":{}}'
-            className="bg-white border border-hairline rounded-[8px] px-3 py-2 text-[14px] font-mono outline-none focus:border-primary resize-y"
+            className="bg-white border border-hairline rounded-sm px-3 py-2 text-caption font-mono outline-none focus:border-primary resize-y"
           />
         </div>
         <div className="grid gap-2">
-          <label className="text-[14px] font-semibold text-ink-80">输出 Schema（JSON，可空）</label>
+          <label className="text-caption font-semibold text-ink-80">输出 Schema（JSON，可空）</label>
           <textarea
             value={form.outputSchema}
             onChange={set("outputSchema")}
             rows={6}
             placeholder='{"type":"object","properties":{}}'
-            className="bg-white border border-hairline rounded-[8px] px-3 py-2 text-[14px] font-mono outline-none focus:border-primary resize-y"
+            className="bg-white border border-hairline rounded-sm px-3 py-2 text-caption font-mono outline-none focus:border-primary resize-y"
           />
         </div>
       </div>
 
       <div className="grid gap-2">
-        <label className="text-[14px] font-semibold text-ink-80">标签（逗号分隔）</label>
+        <label className="text-caption font-semibold text-ink-80">标签（逗号分隔）</label>
         <Input value={form.tags} onChange={set("tags")} placeholder="财务, 测算" />
       </div>
 
-      {error && <p className="text-[14px] text-error">{error}</p>}
+      {error && <p className="text-caption text-error">{error}</p>}
 
       <div className="flex justify-end gap-2">
         <Button variant="secondary" onClick={() => router.back()}>

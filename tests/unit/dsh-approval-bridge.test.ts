@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { publish } from "@/lib/discussion/broadcast";
-import { DiscussionApprovalBridge } from "@/lib/discussion/approval-bridge";
+import { DiscussionApprovalBridge, type ApprovalPersistence } from "@/lib/discussion/approval-bridge";
 
 vi.mock("@/lib/discussion/broadcast", () => ({ publish: vi.fn() }));
 
@@ -8,91 +8,119 @@ const request = {
   approvalId: "approval-1",
   discussionId: "d1",
   sessionId: "session-1",
-  toolName: "tool-test",
+  sessionKind: "persona" as const,
+  toolName: "web_search",
   callId: "call-1",
   reason: "needs permission",
 };
+
+function persistence(initial: Record<string, "allowed" | "denied"> = {}): ApprovalPersistence {
+  const decisions = new Map(Object.entries(initial));
+  return {
+    get: vi.fn(async (discussionId, capability) => decisions.get(`${discussionId}:${capability}`) ?? null),
+    save: vi.fn(async ({ discussionId, capability, status }) => {
+      const key = `${discussionId}:${capability}`;
+      const previous = decisions.get(key);
+      if (previous) return previous === status ? "already-decided" : "conflict";
+      decisions.set(key, status);
+      return "created";
+    }),
+  };
+}
 
 describe("DiscussionApprovalBridge", () => {
   beforeEach(() => vi.mocked(publish).mockReset());
 
   it("waits for the exact Discussion decision and publishes an opaque request", async () => {
-    const bridge = new DiscussionApprovalBridge({ timeoutMs: 1000 });
+    const bridge = new DiscussionApprovalBridge({ timeoutMs: 1000, persistence: persistence() });
     const pending = bridge.wait(request);
-    expect(bridge.listPending("d1")).toMatchObject([{ approvalId: "approval-1", toolName: "tool-test" }]);
+    await vi.waitFor(() => expect(bridge.listPending("d1")).toMatchObject([{ approvalId: "approval-1", toolName: "web_search", scope: "discussion" }]));
     expect(publish).toHaveBeenCalledWith("d1", expect.objectContaining({
       type: "approval-request",
-      approval: expect.objectContaining({ approvalId: "approval-1", sessionId: "session-1", toolName: "tool-test" }),
+      approval: expect.objectContaining({ approvalId: "approval-1", sessionId: "session-1", toolName: "web_search", scope: "discussion" }),
     }));
-    expect(bridge.decide("d1", "approval-1", "allowed-once")).toBe("accepted");
+    await expect(bridge.decide("d1", "approval-1", "allowed-once")).resolves.toBe("accepted");
     await expect(pending).resolves.toBe("allowed-once");
   });
 
-  it("keeps a session-scoped tool approval for later requests in the same DSH Session", async () => {
-    const bridge = new DiscussionApprovalBridge({ timeoutMs: 1000 });
-    const first = bridge.wait(request);
-    const queued = bridge.wait({ ...request, approvalId: "approval-2", callId: "call-2" });
+  it("merges different Persona Sessions into one Discussion approval", async () => {
+    const bridge = new DiscussionApprovalBridge({ timeoutMs: 1000, persistence: persistence() });
+    const first = bridge.wait({ ...request, sessionId: "persona-a" });
+    const second = bridge.wait({ ...request, approvalId: "approval-2", sessionId: "persona-b", callId: "call-2" });
 
-    expect(bridge.decide("d1", "approval-1", "allowed-session")).toBe("accepted");
+    await vi.waitFor(() => expect(bridge.listPending("d1")).toHaveLength(1));
+    await expect(bridge.decide("d1", "approval-1", "allowed-discussion")).resolves.toBe("accepted");
     await expect(first).resolves.toBe("allowed-once");
-    await expect(queued).resolves.toBe("allowed-once");
-
-    await expect(bridge.wait({ ...request, approvalId: "approval-3", callId: "call-3" })).resolves.toBe("allowed-once");
-    expect(bridge.listPending("d1")).toEqual([]);
+    await expect(second).resolves.toBe("allowed-once");
+    await expect(bridge.wait({ ...request, approvalId: "approval-3", sessionId: "persona-c", callId: "call-3" }))
+      .resolves.toBe("allowed-once");
   });
 
-  it("does not carry a session-scoped approval to another Session or tool", async () => {
-    const bridge = new DiscussionApprovalBridge({ timeoutMs: 1000 });
+  it("denies current and future Persona requests for the whole Discussion", async () => {
+    const bridge = new DiscussionApprovalBridge({ timeoutMs: 1000, persistence: persistence() });
+    const first = bridge.wait({ ...request, sessionId: "persona-a" });
+    const second = bridge.wait({ ...request, approvalId: "approval-2", sessionId: "persona-b", callId: "call-2" });
+
+    await vi.waitFor(() => expect(bridge.listPending("d1")).toHaveLength(1));
+    await expect(bridge.decide("d1", "approval-1", "rejected-discussion")).resolves.toBe("accepted");
+    await expect(first).resolves.toBe("rejected");
+    await expect(second).resolves.toBe("rejected");
+    await expect(bridge.wait({ ...request, approvalId: "approval-3", sessionId: "persona-c", callId: "call-3" }))
+      .resolves.toBe("rejected");
+  });
+
+  it("does not carry a Discussion grant to another Discussion or tool", async () => {
+    const bridge = new DiscussionApprovalBridge({ timeoutMs: 1000, persistence: persistence() });
     const first = bridge.wait(request);
-    expect(bridge.decide("d1", "approval-1", "allowed-session")).toBe("accepted");
+    await vi.waitFor(() => expect(bridge.listPending("d1")).toHaveLength(1));
+    await expect(bridge.decide("d1", "approval-1", "allowed-discussion")).resolves.toBe("accepted");
     await expect(first).resolves.toBe("allowed-once");
 
-    const otherSession = bridge.wait({ ...request, approvalId: "approval-2", sessionId: "session-2" });
-    const otherTool = bridge.wait({ ...request, approvalId: "approval-3", toolName: "other-tool" });
-    expect(bridge.listPending("d1")).toMatchObject([
-      { approvalId: "approval-2", sessionId: "session-2" },
-      { approvalId: "approval-3", toolName: "other-tool" },
-    ]);
+    const otherDiscussion = bridge.wait({ ...request, approvalId: "approval-2", discussionId: "d2", sessionId: "session-2" });
+    const otherTool = bridge.wait({ ...request, approvalId: "approval-3", toolName: "read_skill_reference", callId: "call-3" });
+    await vi.waitFor(() => {
+      expect(bridge.listPending("d1")).toMatchObject([{ approvalId: "approval-3", toolName: "read_skill_reference" }]);
+      expect(bridge.listPending("d2")).toMatchObject([{ approvalId: "approval-2" }]);
+    });
     bridge.cancelDiscussion("d1", "unavailable");
-    await expect(otherSession).resolves.toBe("unavailable");
+    bridge.cancelDiscussion("d2", "unavailable");
+    await expect(otherDiscussion).resolves.toBe("unavailable");
     await expect(otherTool).resolves.toBe("unavailable");
   });
 
-  it("clears session-scoped permissions when the Discussion Session is closed", async () => {
-    const bridge = new DiscussionApprovalBridge({ timeoutMs: 1000 });
-    const first = bridge.wait(request);
-    expect(bridge.decide("d1", "approval-1", "allowed-session")).toBe("accepted");
-    await expect(first).resolves.toBe("allowed-once");
-
-    bridge.cancelDiscussion("d1", "unavailable");
-    const afterClose = bridge.wait({ ...request, approvalId: "approval-2", callId: "call-2" });
-    expect(bridge.listPending("d1")).toMatchObject([{ approvalId: "approval-2" }]);
-    bridge.cancelDiscussion("d1", "unavailable");
-    await expect(afterClose).resolves.toBe("unavailable");
+  it("rejects Moderator web_search even when the Discussion grant is allowed", async () => {
+    const bridge = new DiscussionApprovalBridge({
+      persistence: persistence({ "d1:web_search": "allowed" }),
+    });
+    await expect(bridge.wait({ ...request, sessionKind: "moderator" })).resolves.toBe("rejected");
+    expect(bridge.listPending("d1")).toEqual([]);
   });
 
   it("accepts only the first decision and rejects conflicting replays", async () => {
-    const bridge = new DiscussionApprovalBridge({ timeoutMs: 1000 });
+    const bridge = new DiscussionApprovalBridge({ timeoutMs: 1000, persistence: persistence() });
     const pending = bridge.wait(request);
-    expect(bridge.decide("d1", "approval-1", "rejected")).toBe("accepted");
+    await vi.waitFor(() => expect(bridge.listPending("d1")).toHaveLength(1));
+    await expect(bridge.decide("d1", "approval-1", "rejected-discussion")).resolves.toBe("accepted");
     await expect(pending).resolves.toBe("rejected");
-    expect(bridge.decide("d1", "approval-1", "rejected")).toBe("already-decided");
-    expect(bridge.decide("d1", "approval-1", "allowed-once")).toBe("conflict");
-    expect(bridge.decide("other", "approval-1", "allowed-once")).toBe("not-found");
+    await expect(bridge.decide("d1", "approval-1", "rejected-discussion")).resolves.toBe("already-decided");
+    await expect(bridge.decide("d1", "approval-1", "allowed-discussion")).resolves.toBe("conflict");
+    await expect(bridge.decide("other", "approval-1", "allowed-discussion")).resolves.toBe("not-found");
   });
 
   it("fails closed on abort, timeout, and Discussion cancellation", async () => {
-    const bridge = new DiscussionApprovalBridge({ timeoutMs: 10 });
+    const bridge = new DiscussionApprovalBridge({ timeoutMs: 1000, persistence: persistence() });
     const controller = new AbortController();
     const aborted = bridge.wait({ ...request, approvalId: "abort" }, controller.signal);
     controller.abort();
     await expect(aborted).resolves.toBe("cancelled");
-    expect(bridge.decide("d1", "abort", "allowed-once")).toBe("conflict");
+    await expect(bridge.decide("d1", "abort", "allowed-once")).resolves.toBe("conflict");
 
-    const timedOut = bridge.wait({ ...request, approvalId: "timeout" });
+    const timedBridge = new DiscussionApprovalBridge({ timeoutMs: 10, persistence: persistence() });
+    const timedOut = timedBridge.wait({ ...request, approvalId: "timeout" });
     await expect(timedOut).resolves.toBe("unavailable");
 
     const cancelled = bridge.wait({ ...request, approvalId: "cancel" });
+    await vi.waitFor(() => expect(bridge.listPending("d1")).toMatchObject([{ approvalId: "cancel" }]));
     bridge.cancelDiscussion("d1", "unavailable");
     await expect(cancelled).resolves.toBe("unavailable");
     expect(bridge.listPending("d1")).toEqual([]);

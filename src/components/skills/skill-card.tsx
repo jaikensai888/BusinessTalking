@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
 
 export interface SkillItem {
   id: string;
@@ -37,20 +38,20 @@ export function SkillCard({
   const tags: string[] = Array.isArray(skill.tags) ? skill.tags.map(String) : [];
 
   return (
-    <div className="bg-white border border-hairline rounded-lg p-6 flex flex-col gap-3">
+    <Card className="p-6 flex flex-col gap-3">
       <div className="flex items-start justify-between gap-2">
-        <h3 className="text-[17px] font-semibold leading-[1.24] tracking-[-0.374px]">{skill.name}</h3>
+        <h3 className="text-body font-semibold leading-[1.24] tracking-[-0.374px]">{skill.name}</h3>
         <Badge variant={source === "npx" ? "primary" : "neutral"}>{SOURCE_LABEL[source] ?? source}</Badge>
       </div>
 
       {skill.description && (
-        <p className="text-[14px] text-ink-48 leading-[1.43] line-clamp-2">{skill.description}</p>
+        <p className="text-caption text-ink-48 leading-[1.43] line-clamp-2">{skill.description}</p>
       )}
 
-      <div className="flex items-center gap-2 text-[12px] text-ink-48">
-        <span className="bg-parchment rounded-[6px] px-2 py-0.5">{skill.category}</span>
+      <div className="flex items-center gap-2 text-fine text-ink-48">
+        <span className="bg-parchment rounded-sm px-2 py-0.5">{skill.category}</span>
         {tags.slice(0, 3).map((t) => (
-          <span key={t} className="bg-parchment rounded-[6px] px-2 py-0.5">
+          <span key={t} className="bg-parchment rounded-sm px-2 py-0.5">
             {t}
           </span>
         ))}
@@ -70,6 +71,6 @@ export function SkillCard({
           )}
         </div>
       )}
-    </div>
+    </Card>
   );
 }

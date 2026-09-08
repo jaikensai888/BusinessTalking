@@ -80,6 +80,8 @@ export function ParticleWordmark() {
       off.height = H;
       const c = off.getContext("2d", { willReadFrequently: true })!;
       c.clearRect(0, 0, W, H);
+      // 离屏 canvas 的字形采样掩码，非 UI 颜色 —— 不受设计 token 约束
+      // eslint-disable-next-line no-restricted-syntax
       c.fillStyle = "#fff";
       c.font = `700 ${fs}px ${FONT}`;
       c.textAlign = "center";

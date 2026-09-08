@@ -88,7 +88,7 @@ export default function RunDetailPage() {
 
   if (error) {
     return (
-      <div className="px-6 py-10 text-[14px] text-error">
+      <div className="px-6 py-10 text-caption text-error">
         {error}
         <button className="ml-4 text-primary underline" onClick={() => router.push("/")}>
           返回工作台
@@ -108,8 +108,8 @@ export default function RunDetailPage() {
     <div className="px-6 py-10 max-w-4xl">
       <div className="flex items-start justify-between mb-4">
         <div>
-          <h1 className="text-[28px] font-semibold leading-[1.2] tracking-[-0.374px]">{run.recipeName}</h1>
-          <p className="text-[14px] text-ink-48 mt-1 line-clamp-2">{run.ideaInput}</p>
+          <h1 className="text-lead font-semibold leading-[1.2] tracking-[-0.374px]">{run.recipeName}</h1>
+          <p className="text-caption text-ink-48 mt-1 line-clamp-2">{run.ideaInput}</p>
         </div>
         <Button
           variant="dark"
@@ -124,7 +124,7 @@ export default function RunDetailPage() {
         <div className="flex items-center justify-between mb-3">
           <span
             className={cn(
-              "text-[14px] font-semibold",
+              "text-caption font-semibold",
               run.status === "done" && "text-success",
               run.status === "failed" && "text-error",
               isRunning && "text-primary"
@@ -134,7 +134,7 @@ export default function RunDetailPage() {
             {run.status === "failed" && "✗ 失败"}
             {isRunning && "● 执行中"}
           </span>
-          <span className="text-[13px] text-ink-48">
+          <span className="text-caption text-ink-48">
             步骤 {Math.min(run.currentStep, run.totalSteps)}/{run.totalSteps}
             {run.provider ? ` · ${run.provider}` : ""}
           </span>
@@ -145,10 +145,10 @@ export default function RunDetailPage() {
             style={{ width: `${Math.max(pct, 2)}%` }}
           />
         </div>
-        {run.error && <p className="mt-3 text-[13px] text-error">{run.error}</p>}
+        {run.error && <p className="mt-3 text-caption text-error">{run.error}</p>}
       </div>
 
-      <h2 className="text-[21px] font-semibold tracking-[0.231px] mb-3">步骤时间线</h2>
+      <h2 className="text-tagline font-semibold tracking-[0.231px] mb-3">步骤时间线</h2>
       <div className="space-y-2 mb-8">
         {run.steps.map((s) => {
           const isFailed = s.status === "failed";
@@ -160,7 +160,7 @@ export default function RunDetailPage() {
               >
                 <span
                   className={cn(
-                    "w-6 h-6 rounded-full flex items-center justify-center text-[13px] shrink-0",
+                    "w-6 h-6 rounded-full flex items-center justify-center text-caption shrink-0",
                     s.status === "done" && "bg-success text-white",
                     s.status === "failed" && "bg-error text-white",
                     s.status === "running" && "bg-primary text-white animate-pulse",
@@ -170,29 +170,29 @@ export default function RunDetailPage() {
                 >
                   {STEP_ICON[s.status]}
                 </span>
-                <span className="text-[15px] font-semibold flex-1">
+                <span className="text-caption font-semibold flex-1">
                   {s.stepIndex}. {s.skillName}
-                  {s.personaName && <span className="ml-2 text-[12px] font-normal text-primary">@{s.personaName}</span>}
+                  {s.personaName && <span className="ml-2 text-fine font-normal text-primary">@{s.personaName}</span>}
                 </span>
                 {s.durationMs !== null && (
-                  <span className="text-[12px] text-ink-48">{(s.durationMs / 1000).toFixed(1)}s</span>
+                  <span className="text-fine text-ink-48">{(s.durationMs / 1000).toFixed(1)}s</span>
                 )}
-                <span className="text-[12px] text-ink-48">{expanded === s.stepIndex ? "收起" : "展开"}</span>
+                <span className="text-fine text-ink-48">{expanded === s.stepIndex ? "收起" : "展开"}</span>
               </button>
 
               {expanded === s.stepIndex && (
                 <div className="px-5 pb-4 space-y-3 border-t border-hairline pt-3">
-                  {s.error && <p className="text-[13px] text-error">错误：{s.error}</p>}
+                  {s.error && <p className="text-caption text-error">错误：{s.error}</p>}
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <div className="text-[12px] text-ink-48 mb-1">输入</div>
-                      <pre className="bg-parchment rounded-[8px] p-3 text-[12px] font-mono whitespace-pre-wrap break-all max-h-40 overflow-auto">
+                      <div className="text-fine text-ink-48 mb-1">输入</div>
+                      <pre className="bg-parchment rounded-sm p-3 text-fine font-mono whitespace-pre-wrap break-all max-h-40 overflow-auto">
                         {JSON.stringify(s.input, null, 2) ?? "—"}
                       </pre>
                     </div>
                     <div>
-                      <div className="text-[12px] text-ink-48 mb-1">输出</div>
-                      <pre className="bg-parchment rounded-[8px] p-3 text-[12px] font-mono whitespace-pre-wrap break-all max-h-40 overflow-auto">
+                      <div className="text-fine text-ink-48 mb-1">输出</div>
+                      <pre className="bg-parchment rounded-sm p-3 text-fine font-mono whitespace-pre-wrap break-all max-h-40 overflow-auto">
                         {typeof s.output === "string" ? s.output : JSON.stringify(s.output, null, 2) ?? "—"}
                       </pre>
                     </div>
@@ -214,9 +214,9 @@ export default function RunDetailPage() {
 
       {run.finalReport && (
         <>
-          <h2 className="text-[21px] font-semibold tracking-[0.231px] mb-3">最终报告</h2>
+          <h2 className="text-tagline font-semibold tracking-[0.231px] mb-3">最终报告</h2>
           <div className="bg-white border border-hairline rounded-lg p-6 mb-6">
-            <pre className="whitespace-pre-wrap break-all text-[15px] leading-[1.6] font-sans">{run.finalReport}</pre>
+            <pre className="whitespace-pre-wrap break-all text-caption leading-[1.6] font-sans">{run.finalReport}</pre>
           </div>
         </>
       )}

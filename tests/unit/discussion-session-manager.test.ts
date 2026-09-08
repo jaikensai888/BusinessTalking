@@ -105,6 +105,45 @@ describe("DiscussionSessionManager", () => {
     await expect(second).resolves.toMatchObject({ sessionId: "session-b" });
   });
 
+  it("multiplexes notifications for different Persona Sessions while both are active", async () => {
+    const started = new Set<string>();
+    const releases = new Map<string, () => void>();
+    const callbacks = new Map<string, ReturnType<typeof vi.fn>>();
+    createProcess.mockImplementationOnce((options: DshSessionProcessOptions) => {
+      const fake = createFakeProcess(options);
+      fake.run.mockImplementation(async ({ sessionId }: { sessionId: string }) => {
+        started.add(sessionId);
+        await options.onNotification?.(`start-${sessionId}`, {
+          method: "session.event",
+          params: { sessionId, event: { type: "turn/start", seq: 1, data: {} } },
+        });
+        await new Promise<void>((resolve) => releases.set(sessionId, resolve));
+        await options.onNotification?.(`message-${sessionId}`, {
+          method: "session.event",
+          params: { sessionId, event: { type: "assistant/message", seq: 2, data: { text: sessionId } } },
+        });
+        return { sessionId, finalResponse: `reply:${sessionId}` };
+      });
+      return fake;
+    });
+
+    const firstCallback = vi.fn();
+    const secondCallback = vi.fn();
+    callbacks.set("session-a", firstCallback);
+    callbacks.set("session-b", secondCallback);
+    const sessionManager = manager();
+    const first = sessionManager.run(input({ sessionId: "session-a", onNotification: firstCallback }));
+    const second = sessionManager.run(input({ sessionId: "session-b", onNotification: secondCallback }));
+    await vi.waitFor(() => expect(started).toEqual(new Set(["session-a", "session-b"])), { timeout: 1000 });
+    releases.get("session-b")?.();
+    releases.get("session-a")?.();
+    await Promise.all([first, second]);
+
+    expect(firstCallback.mock.calls.every(([event]) => event.params.sessionId === "session-a")).toBe(true);
+    expect(secondCallback.mock.calls.every(([event]) => event.params.sessionId === "session-b")).toBe(true);
+    expect(callbacks.size).toBe(2);
+  });
+
   it("drains on an idle profile switch and rejects an active profile switch", async () => {
     const sessionManager = manager();
     await sessionManager.run(input());
@@ -127,23 +166,6 @@ describe("DiscussionSessionManager", () => {
     await expect(sessionManager.run(input({ profile: PROFILE, sessionId: "other" }))).rejects.toBeInstanceOf(DshRuntimeProfileConflictError);
     release();
     await active;
-  });
-
-  it("recreates an idle process when its internal endpoint configuration changes", async () => {
-    const sessionManager = manager();
-    await sessionManager.run(input());
-
-    await sessionManager.run(input({
-      sessionId: "after-config-change",
-      processOptions: {
-        ...PROCESS_OPTIONS,
-        internalSearchUrl: "http://127.0.0.1:3001/api/internal/dsh/web-search",
-        internalSearchToken: "new-token",
-      },
-    }));
-
-    expect(createProcess).toHaveBeenCalledTimes(2);
-    expect(processes[0].close).toHaveBeenCalledTimes(1);
   });
 
   it("propagates notification callback failures without manufacturing success", async () => {

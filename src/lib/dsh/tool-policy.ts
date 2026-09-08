@@ -5,7 +5,7 @@
  *  - 保留的 DSH Skill tool：`skill`（DSH 自带，BusinessTalking 只提供 scoped provider）。
  *  - BusinessTalking 只读工具：`read_skill_reference`。
  *  - `web_search`：仅当 persona manifest.toolPolicy.webSearch 明确允许时注册；默认仍关闭，
- *    实际执行前由当前讨论的 approvalPolicy 询问或拒绝。
+ *    实际执行前由当前讨论的 approvalPolicy 询问或拒绝；执行通过 DSH `ctx.web`。
  *
  * 任何 manifest 数据或 prompt 修改都不能把本 allowlist 之外的名称放行。
  */
@@ -36,7 +36,6 @@ export const KNOWN_FORBIDDEN_TOOLS = readonly([
   "tool-workflow",
   "tool-jobs",
   "web-fetch-http",
-  "web-search-deepseek",
 ]);
 
 /** 根据 manifest 的 toolPolicy 计算该 Session 实际允许的工具集合。 */

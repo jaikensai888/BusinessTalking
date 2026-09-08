@@ -26,11 +26,12 @@ function tokenMatches(provided: string | null, expected: string | undefined): bo
 
 function parseApprovalBody(value: unknown): ApprovalBridgeRequest {
   if (!isRecord(value)) throw new Error("body 必须是对象");
-  const allowed = new Set(["approvalId", "discussionId", "sessionId", "toolName", "callId", "reason"]);
+  const allowed = new Set(["approvalId", "discussionId", "sessionId", "sessionKind", "toolName", "callId", "reason"]);
   if (Object.keys(value).some((key) => !allowed.has(key))) throw new Error("body 含未允许字段");
   if (!validId(value.approvalId)) throw new Error("approvalId 非法");
   if (!validId(value.discussionId)) throw new Error("discussionId 非法");
   if (!validId(value.sessionId)) throw new Error("sessionId 非法");
+  if (value.sessionKind !== "persona" && value.sessionKind !== "moderator") throw new Error("sessionKind 非法");
   if (!validId(value.toolName)) throw new Error("toolName 非法");
   if (value.callId !== undefined && !validId(value.callId)) throw new Error("callId 非法");
   if (value.reason !== undefined && (typeof value.reason !== "string" || value.reason.length > 1000)) {
@@ -40,6 +41,7 @@ function parseApprovalBody(value: unknown): ApprovalBridgeRequest {
     approvalId: value.approvalId,
     discussionId: value.discussionId,
     sessionId: value.sessionId,
+    sessionKind: value.sessionKind,
     toolName: value.toolName,
     ...(value.callId === undefined ? {} : { callId: value.callId }),
     ...(value.reason === undefined ? {} : { reason: value.reason }),

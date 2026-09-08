@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import * as turnProcess from "@/components/discussions/dsh-turn-process";
 import { mapRunnerError } from "@/lib/runtime/turn-process";
 import {
   DshStartFailedError,
@@ -47,5 +48,17 @@ describe("dsh turn-process error mapping", () => {
     // 结构映射的解析异常路径由 spawn 层处理；此处确认类存在且可构造
     const e = new DshProtocolError("bad json");
     expect(e.code).toBe("DSH_PROTOCOL_FAILED");
+  });
+});
+
+describe("DshTurnProcess expansion", () => {
+  it("honors a manual collapse while the turn is still running", () => {
+    expect(turnProcess).toHaveProperty("resolveTurnExpanded");
+
+    const resolveTurnExpanded = (turnProcess as unknown as {
+      resolveTurnExpanded: (status: "running" | "completed" | "failed", manualExpanded: boolean | null, collapsed: boolean) => boolean;
+    }).resolveTurnExpanded;
+
+    expect(resolveTurnExpanded("running", false, false)).toBe(false);
   });
 });

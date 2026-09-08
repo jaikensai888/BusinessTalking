@@ -9,11 +9,16 @@ const mocks = vi.hoisted(() => ({
   turnUpdate: vi.fn(),
   turnUpdateMany: vi.fn(),
   messageCreate: vi.fn(),
+  messageFindMany: vi.fn(),
   runTurnViaDsh: vi.fn(),
   runDiscussionDshTurn: vi.fn(),
   freshTurnSessionId: vi.fn(),
   ensurePersonaSession: vi.fn(),
   writeModeratorManifestForSession: vi.fn(),
+  acquireDiscussionRun: vi.fn(),
+  renewDiscussionRun: vi.fn(),
+  releaseDiscussionRun: vi.fn(),
+  isDiscussionRunOwner: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -31,7 +36,7 @@ vi.mock("@/lib/db", () => ({
       update: (...args: unknown[]) => mocks.turnUpdate(...args),
       updateMany: (...args: unknown[]) => mocks.turnUpdateMany(...args),
     },
-    discussionMessage: { create: (...args: unknown[]) => mocks.messageCreate(...args) },
+    discussionMessage: { create: (...args: unknown[]) => mocks.messageCreate(...args), findMany: (...args: unknown[]) => mocks.messageFindMany(...args) },
   },
 }));
 
@@ -48,6 +53,13 @@ vi.mock("@/lib/discussion/run-dsh-turn", () => ({
 
 vi.mock("@/lib/discussion/broadcast", () => ({
   publish: vi.fn(),
+}));
+
+vi.mock("@/lib/discussion/run-lease", () => ({
+  acquireDiscussionRun: (...args: unknown[]) => mocks.acquireDiscussionRun(...args),
+  renewDiscussionRun: (...args: unknown[]) => mocks.renewDiscussionRun(...args),
+  releaseDiscussionRun: (...args: unknown[]) => mocks.releaseDiscussionRun(...args),
+  isDiscussionRunOwner: (...args: unknown[]) => mocks.isDiscussionRunOwner(...args),
 }));
 
 import { runDiscussion } from "@/lib/discussion/orchestrator";
@@ -75,6 +87,11 @@ beforeEach(() => {
   mocks.turnUpdateMany.mockResolvedValue({ count: 1 });
   mocks.participantUpdate.mockResolvedValue({});
   mocks.messageCreate.mockResolvedValue({ id: "message-1" });
+  mocks.messageFindMany.mockResolvedValue([]);
+  mocks.acquireDiscussionRun.mockResolvedValue({ runId: "run-1", leaseUntil: new Date(Date.now() + 60_000) });
+  mocks.renewDiscussionRun.mockResolvedValue(true);
+  mocks.releaseDiscussionRun.mockResolvedValue(true);
+  mocks.isDiscussionRunOwner.mockResolvedValue(true);
 });
 
 describe("runDiscussion failure state", () => {
@@ -98,6 +115,7 @@ describe("runDiscussion failure state", () => {
     expect(mocks.discussionUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: "failed" }) })
     );
+    expect(mocks.releaseDiscussionRun).toHaveBeenCalledWith("d1", "run-1");
   });
 
   it("marks moderatorStatus failed when the moderator manifest cannot be created", async () => {

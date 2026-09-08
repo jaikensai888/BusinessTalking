@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Modal } from "@/components/ui/modal";
 import { LogPanel } from "@/components/skills/log-panel";
 
 interface Candidate {
@@ -115,35 +116,35 @@ export function ImportDialog({
 
   if (!job) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-6">
-        <div className="bg-white rounded-lg w-full max-w-2xl p-8 max-h-[85vh] overflow-auto">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-[21px] font-semibold tracking-[0.231px]">通过 npx 导入 Skill</h2>
-            <button className="text-ink-48 hover:text-ink text-[20px]" onClick={close} aria-label="关闭">
-              ✕
-            </button>
-          </div>
-          <div className="grid gap-2 mb-4">
-            <label className="text-[14px] font-semibold text-ink-80">命令</label>
-            <Input
-              value={command}
-              onChange={(e) => setCommand(e.target.value)}
-              placeholder="npx skills add pricing-model"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") execute();
-              }}
-            />
-            <p className="text-[12px] text-warning">⚠ 将执行上方命令（最长 120 秒），请确认来源可信。仅支持以 npx 开头的命令。</p>
-          </div>
-          {clientError && <p className="text-[14px] text-error mb-3">{clientError}</p>}
-          <div className="flex justify-end">
+      <Modal
+        open
+        onClose={close}
+        title="通过 npx 导入 Skill"
+        footer={
+          <>
             <Button variant="secondary" onClick={close}>
               取消
             </Button>
             <Button onClick={execute}>确认执行 ▶</Button>
-          </div>
+          </>
+        }
+      >
+        <div className="grid gap-2 p-5">
+          <label className="text-caption font-semibold text-ink-80">命令</label>
+          <Input
+            value={command}
+            onChange={(e) => setCommand(e.target.value)}
+            placeholder="npx skills add pricing-model"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") execute();
+            }}
+          />
+          <p className="text-fine text-warning">
+            ⚠ 将执行上方命令（最长 120 秒），请确认来源可信。仅支持以 npx 开头的命令。
+          </p>
+          {clientError && <p className="text-caption text-error">{clientError}</p>}
         </div>
-      </div>
+      </Modal>
     );
   }
 
@@ -151,17 +152,10 @@ export function ImportDialog({
   const failed = job.status === "failed";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-6">
-      <div className="bg-white rounded-lg w-full max-w-2xl p-8 max-h-[85vh] overflow-auto">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-[21px] font-semibold tracking-[0.231px]">通过 npx 导入 Skill</h2>
-          <button className="text-ink-48 hover:text-ink text-[20px]" onClick={close} aria-label="关闭">
-            ✕
-          </button>
-        </div>
-
+    <Modal open onClose={close} title="通过 npx 导入 Skill">
+      <div className="p-5">
         <div className="grid gap-2 mb-4">
-          <label className="text-[14px] font-semibold text-ink-80">命令</label>
+          <label className="text-caption font-semibold text-ink-80">命令</label>
           <Input
             value={command}
             onChange={(e) => setCommand(e.target.value)}
@@ -171,10 +165,10 @@ export function ImportDialog({
               if (e.key === "Enter" && !running) execute();
             }}
           />
-          <p className="text-[12px] text-warning">⚠ 将执行上方命令（最长 120 秒），请确认来源可信。仅支持以 npx 开头的命令。</p>
+          <p className="text-fine text-warning">⚠ 将执行上方命令（最长 120 秒），请确认来源可信。仅支持以 npx 开头的命令。</p>
         </div>
 
-        {clientError && <p className="text-[14px] text-error mb-3">{clientError}</p>}
+        {clientError && <p className="text-caption text-error mb-3">{clientError}</p>}
 
         {!job && (
           <div className="flex justify-end">
@@ -186,19 +180,19 @@ export function ImportDialog({
           <>
             <div className="grid gap-2 mb-4">
               <div className="flex items-center justify-between">
-                <label className="text-[14px] font-semibold text-ink-80">执行日志</label>
-                {job.status === "done" && <span className="text-[12px] text-success">✓ 执行完成</span>}
-                {failed && <span className="text-[12px] text-error">✗ 执行失败</span>}
-                {running && <span className="text-[12px] text-primary animate-pulse">执行中…</span>}
+                <label className="text-caption font-semibold text-ink-80">执行日志</label>
+                {job.status === "done" && <span className="text-fine text-success">✓ 执行完成</span>}
+                {failed && <span className="text-fine text-error">✗ 执行失败</span>}
+                {running && <span className="text-fine text-primary animate-pulse">执行中…</span>}
               </div>
               <LogPanel logs={job.logs} failed={failed} />
             </div>
 
             {job.status === "done" && (
               <div className="grid gap-3 mb-4">
-                <label className="text-[14px] font-semibold text-ink-80">解析结果（勾选入库）</label>
+                <label className="text-caption font-semibold text-ink-80">解析结果（勾选入库）</label>
                 {job.candidates.length === 0 ? (
-                  <p className="text-[14px] text-ink-48">未在临时目录发现 SKILL.md 文件。</p>
+                  <p className="text-caption text-ink-48">未在临时目录发现 SKILL.md 文件。</p>
                 ) : (
                   job.candidates.map((c) => (
                     <label
@@ -213,12 +207,12 @@ export function ImportDialog({
                             e.target.checked ? [...prev, c.file] : prev.filter((f) => f !== c.file)
                           )
                         }
-                        className="mt-1 accent-[#0066cc]"
+                        className="mt-1 accent-primary"
                       />
                       <div>
-                        <div className="text-[15px] font-semibold">{c.name}</div>
-                        {c.description && <div className="text-[13px] text-ink-48">{c.description}</div>}
-                        <div className="text-[12px] text-ink-48 mt-1">{c.file}</div>
+                        <div className="text-caption font-semibold">{c.name}</div>
+                        {c.description && <div className="text-caption text-ink-48">{c.description}</div>}
+                        <div className="text-fine text-ink-48 mt-1">{c.file}</div>
                       </div>
                     </label>
                   ))
@@ -254,6 +248,6 @@ export function ImportDialog({
           </>
         )}
       </div>
-    </div>
+    </Modal>
   );
 }

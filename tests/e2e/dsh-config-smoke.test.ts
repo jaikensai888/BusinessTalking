@@ -130,6 +130,17 @@ describe("dsh sdk profile config smoke", () => {
     }
   });
 
+  it("keeps the DSH web capability and DeepSeek search provider active", () => {
+    const patch = path.join(projectRoot, "runtime", "dsh", "cordis.patch.yml");
+    const cfg = dumpConfig(patch);
+    const entries = parseEntries(cfg);
+
+    expect(entries.get("web"), "DSH web capability must stay active").toBe(false);
+    expect(entries.get("web-search-deepseek"), "DSH DeepSeek search provider must stay active").toBe(false);
+    expect(entries.get("tool-web"), "model-facing web tools remain scoped by BusinessTalking").toBe(true);
+    expect(entries.get("web-fetch-http"), "web fetch remains disabled").toBe(true);
+  });
+
   it("keeps session identity and prompt out of the child environment", () => {
     const options: DshSessionProcessOptions = {
       cwd: projectRoot,

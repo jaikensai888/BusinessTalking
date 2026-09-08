@@ -69,29 +69,29 @@ export default function SpacesPage() {
   return (
     <div className="mx-auto max-w-6xl px-6 py-10">
       <div className="mb-6 flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
           <ChatCircleDots size={22} weight="duotone" />
         </div>
         <div className="min-w-0 flex-1">
-          <h1 className="text-[26px] font-semibold leading-[1.2] tracking-[-0.4px]">会话空间</h1>
-          <p className="text-[13px] text-ink-48">所有讨论与分析运行都在这里，可删除或批量清理</p>
+          <h1 className="text-lead font-semibold leading-[1.2] tracking-[-0.4px]">会话空间</h1>
+          <p className="text-caption text-ink-48">所有讨论与分析运行都在这里，可删除或批量清理</p>
         </div>
         {selectionMode ? (
           <div className="flex items-center gap-2">
-            <span className="text-[13px] text-ink-60">已选 {selected.size} 项</span>
+            <span className="text-caption text-ink-60">已选 {selected.size} 项</span>
             <button
               onClick={() => {
                 setSelected(new Set());
                 setSelectionMode(false);
               }}
-              className="flex items-center gap-1 rounded-full border border-hairline px-3.5 py-2 text-[13px] text-ink-60 transition-colors hover:border-primary/40 hover:text-ink"
+              className="flex items-center gap-1 rounded-full border border-hairline px-3.5 py-2 text-caption text-ink-60 transition-colors hover:border-primary/40 hover:text-ink"
             >
               <X size={14} /> 取消
             </button>
             <button
               onClick={deleteMany}
               disabled={selected.size === 0 || deleting}
-              className="flex items-center gap-1 rounded-full bg-error px-4 py-2 text-[13px] font-medium text-white transition-colors hover:bg-[#e02e24] disabled:opacity-45"
+              className="flex items-center gap-1 rounded-full bg-error px-4 py-2 text-caption font-semibold text-white transition-colors hover:bg-error-hover disabled:opacity-45"
             >
               <Trash size={14} /> 删除选中（{selected.size}）
             </button>
@@ -99,23 +99,23 @@ export default function SpacesPage() {
         ) : (
           <button
             onClick={() => setSelectionMode(true)}
-            className="flex items-center gap-1.5 rounded-full border border-primary/50 px-4 py-2 text-[13px] text-primary transition-colors hover:bg-primary/5"
+            className="flex items-center gap-1.5 rounded-full border border-primary/50 px-4 py-2 text-caption text-primary transition-colors hover:bg-primary/5"
           >
             <Trash size={14} /> 批量删除
           </button>
         )}
       </div>
 
-      {error && <p className="mb-4 text-[14px] text-error">{error}</p>}
+      {error && <p className="mb-4 text-caption text-error">{error}</p>}
 
       {/* 查询：按标题/摘要/类型/状态过滤 */}
-      <div className="mb-5 flex items-center gap-2 rounded-xl border border-hairline bg-white px-3 py-2.5 transition-all focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/10">
+      <div className="mb-5 flex items-center gap-2 rounded-lg border border-hairline bg-white px-3 py-2.5 transition-all focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/10">
         <MagnifyingGlass size={17} className="shrink-0 text-ink-40" weight="bold" />
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="搜索标题 / 摘要 / 类型（讨论、分析）/ 状态 / 编号…"
-          className="flex-1 bg-transparent text-[14px] text-ink outline-none placeholder:text-ink-40"
+          className="flex-1 bg-transparent text-caption text-ink outline-none placeholder:text-ink-40"
         />
         {query && (
           <button onClick={() => setQuery("")} aria-label="清除搜索" title="清除搜索" className="shrink-0 text-ink-40 transition-colors hover:text-ink">
@@ -134,7 +134,7 @@ export default function SpacesPage() {
         query={query}
       />
 
-      {deleting && <p className="mt-4 text-center text-[13px] text-ink-40">正在删除…</p>}
+      {deleting && <p className="mt-4 text-center text-caption text-ink-40">正在删除…</p>}
     </div>
   );
 }

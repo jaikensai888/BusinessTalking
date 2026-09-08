@@ -249,9 +249,12 @@ model Discussion {
   stateVersion          Int       @default(0)
   moderatorSessionId    String?
   moderatorStatus       String? // idle | running | completed | failed | archived
+  lastError             String? // 最近一次运行失败的错误摘要（成功启动新一轮时清空）
   moderatorLastEventSeq Int       @default(0)
   archivedAt            DateTime?
   purgeAt               DateTime?
+  activeRunId           String?
+  runLeaseUntil         DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -263,6 +266,7 @@ model Discussion {
   agentEvents  AgentEvent[]
   turns        DiscussionTurn[]
   eventCursor  DiscussionEventCursor?
+  capabilityGrants DiscussionCapabilityGrant[]
 
   @@index([status])
   @@index([archivedAt])
@@ -368,6 +372,23 @@ model DiscussionSkill {
   @@index([skillRevisionId])
 }
 
+// Discussion 级工具能力授权；只保存最终决定，pending 状态由内存 approval bridge 管理。
+model DiscussionCapabilityGrant {
+  id           String   @id @default(cuid())
+  discussionId String
+  capability   String
+  status       String
+  decidedAt    DateTime?
+  decidedBy    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  discussion Discussion @relation(fields: [discussionId], references: [id], onDelete: Cascade)
+
+  @@unique([discussionId, capability])
+  @@index([discussionId, status])
+}
+
 // DSH 原始事件 ledger（去重、审计、重放）；不对用户直接展示
 model AgentEvent {
   id            String   @id @default(cuid())
@@ -401,6 +422,7 @@ model DiscussionEventCursor {
 model DiscussionTurn {
   id              String    @id @default(cuid())
   discussionId    String
+  runId           String?
   participantId   String? // Persona turn 有值，Moderator turn 为空
   sessionId       String
   kind            String // persona | moderator
@@ -417,5 +439,6 @@ model DiscussionTurn {
   discussion Discussion @relation(fields: [discussionId], references: [id], onDelete: Cascade)
 
   @@index([discussionId, round])
+  @@index([discussionId, runId])
   @@index([sessionId])
 }

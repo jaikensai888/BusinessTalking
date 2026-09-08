@@ -47,18 +47,18 @@ export function DiscussionPermissionControl({
 
   const disabled = busy || saving;
   return (
-    <div className="flex flex-wrap items-center gap-2 text-[11px] text-ink-48" aria-label="讨论权限">
+    <div className="flex flex-wrap items-center gap-2 text-fine text-ink-48" aria-label="讨论权限">
       <span className="inline-flex items-center gap-1 rounded-full bg-parchment px-2.5 py-1" title="P0 期间仅支持只读运行时">
         <LockKey size={13} /> {permissionMode === "read-only" ? "只读" : permissionMode}
       </span>
       <span className="text-ink-40">审批</span>
-      <div className="inline-flex rounded-lg border border-hairline bg-white p-0.5" role="group" aria-label="审批策略">
+      <div className="inline-flex rounded-sm border border-hairline bg-white p-0.5" role="group" aria-label="审批策略">
         <button
           type="button"
           aria-pressed={approvalPolicy === "ask"}
           disabled={disabled}
           onClick={() => void updatePolicy("ask")}
-          className={cn("rounded-md px-2 py-1 transition-colors", approvalPolicy === "ask" ? "bg-primary/10 font-medium text-primary" : "text-ink-48 hover:text-ink")}
+          className={cn("rounded-sm px-2 py-1 transition-colors", approvalPolicy === "ask" ? "bg-primary/10 font-semibold text-primary" : "text-ink-48 hover:text-ink")}
         >
           询问
         </button>
@@ -67,7 +67,7 @@ export function DiscussionPermissionControl({
           aria-pressed={approvalPolicy === "never"}
           disabled={disabled}
           onClick={() => void updatePolicy("never")}
-          className={cn("rounded-md px-2 py-1 transition-colors", approvalPolicy === "never" ? "bg-parchment font-medium text-ink-80" : "text-ink-48 hover:text-ink")}
+          className={cn("rounded-sm px-2 py-1 transition-colors", approvalPolicy === "never" ? "bg-parchment font-semibold text-ink-80" : "text-ink-48 hover:text-ink")}
         >
           自动拒绝
         </button>

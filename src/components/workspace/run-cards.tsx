@@ -26,16 +26,9 @@ const STATUS_META: Record<string, { label: string; badge: BadgeVariant; icon: Re
   cancelled: { label: "已取消", badge: "neutral", icon: WarningCircle },
 };
 
-/** 平铺纯色 app 图标色（类 Chrome Web Store 扩展图标，无渐变、避免"渐变绿丑"） */
-const ICON_COLORS = ["#2f6fed", "#4f46e5", "#0ea5a6", "#b98a2f", "#e0567a", "#5b6b8c", "#7c5cd6", "#2e7d64"];
-
-function iconFor(name: string): { initial: string; color: string } {
-  const initial = name.trim().charAt(0) || "?";
-  const hue = [...name].reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
-  return { initial, color: ICON_COLORS[hue % ICON_COLORS.length] };
-}
-
-/** UX 4.1 分析工作区卡片（Chrome Web Store 风格）：app 图标块 + 标题 + 状态/步骤 + 描述 */
+/** UX 4.1 分析工作区卡片（DESIGN.md store-utility-card）：图标块 + 标题 + 状态/步骤 + 描述
+ *  图标块改用规范暗色瓦片 tile-1 + 暗面专用蓝，取代原先按名称哈希生成的 8 色彩虹调色板
+ *  （DESIGN.md Do's：单一强调色，不引入第二个品牌色） */
 export function RunCards({ refreshKey, onInvite }: { refreshKey: number; onInvite?: () => void }) {
   const router = useRouter();
   const [items, setItems] = useState<RunItem[]>([]);
@@ -77,7 +70,7 @@ export function RunCards({ refreshKey, onInvite }: { refreshKey: number; onInvit
     return (
       <div className="grid gap-5 [grid-template-columns:repeat(auto-fill,minmax(250px,1fr))]">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="h-64 animate-pulse rounded-2xl bg-pearl" />
+          <div key={i} className="h-64 animate-pulse rounded-lg bg-pearl" />
         ))}
       </div>
     );
@@ -87,13 +80,13 @@ export function RunCards({ refreshKey, onInvite }: { refreshKey: number; onInvit
     return (
       <button
         onClick={onInvite}
-        className="flex w-full flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-hairline bg-pearl/40 px-8 py-20 text-center transition-colors hover:border-primary/40 hover:bg-pearl/70"
+        className="flex w-full flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed border-hairline bg-pearl/40 px-8 py-20 text-center transition-colors hover:border-primary/40 hover:bg-pearl/70"
       >
-        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+        <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-primary/10 text-primary">
           <ArrowRight size={26} weight="bold" />
         </div>
-        <p className="text-[16px] font-semibold text-ink">进入分析</p>
-        <p className="max-w-md text-[13px] leading-[1.6] text-ink-48">
+        <p className="text-body font-semibold text-ink">进入分析</p>
+        <p className="max-w-md text-caption leading-[1.6] text-ink-48">
           描述你的商业想法（@ 引用配方），产出带多视角质询的可行性报告，结果会以卡片展示在这里。
         </p>
       </button>
@@ -102,28 +95,37 @@ export function RunCards({ refreshKey, onInvite }: { refreshKey: number; onInvit
 
   return (
     <div className="grid gap-5 [grid-template-columns:repeat(auto-fill,minmax(250px,1fr))]">
+      {/* 运行状态变化对屏幕阅读器播报（轮询 3s 刷新，视觉用户可从徽章感知） */}
+      <span className="sr-only" role="status" aria-live="polite">
+        {items.some((r) => r.status === "running")
+          ? "有分析正在执行中"
+          : items.some((r) => r.status === "failed")
+            ? "有分析执行失败"
+            : items.length > 0
+              ? "当前没有正在执行的分析"
+              : ""}
+      </span>
       {items.map((run, i) => {
         const meta = STATUS_META[run.status] ?? STATUS_META.pending;
         const IconComponent = meta.icon;
-        const icon = iconFor(run.recipeName);
         return (
           <button
             key={run.id}
             onClick={() => router.push(`/runs/${run.id}`)}
             className={cn(
-              "group flex flex-col gap-3 rounded-2xl border border-hairline bg-white p-4 text-left",
-              "transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-[0_14px_44px_rgba(0,0,0,0.08)]",
+              "group flex flex-col gap-3 rounded-lg border border-hairline bg-white p-4 text-left",
+              "transition-all duration-200 hover:border-primary/40 hover:bg-pearl/60",
               i < 6 && "fl-rise",
               i < 6 && `fl-rise-delay-${(i % 3) + 1}`
             )}
           >
-            {/* app 图标块（平铺纯色，类扩展图标） */}
-            <div className="flex h-24 items-center justify-center rounded-xl" style={{ backgroundColor: icon.color }} aria-hidden>
-              <FileText size={40} weight="bold" className="text-white/90" />
+            {/* 暗色瓦片图标块（规范 tile-1 + 暗面专用蓝，inline 图像用 rounded.sm） */}
+            <div className="flex h-24 items-center justify-center rounded-sm bg-tile-1" aria-hidden>
+              <FileText size={32} weight="bold" className="text-primary-on-dark" />
             </div>
 
             {/* 标题 */}
-            <span className="line-clamp-1 text-[15px] font-semibold leading-[1.3] text-ink">{run.recipeName}</span>
+            <span className="line-clamp-1 text-caption font-semibold leading-[1.3] text-ink">{run.recipeName}</span>
 
             {/* 状态 + 步骤行 */}
             <div className="flex items-center gap-2">
@@ -146,7 +148,7 @@ export function RunCards({ refreshKey, onInvite }: { refreshKey: number; onInvit
                       )}
                     />
                   ))}
-                  <span className="ml-1 text-[11px] tabular-nums text-ink-40">
+                  <span className="ml-1 text-fine tabular-nums text-ink-40">
                     {Math.min(run.currentStep, run.totalSteps)}/{run.totalSteps}
                   </span>
                 </span>
@@ -154,12 +156,12 @@ export function RunCards({ refreshKey, onInvite }: { refreshKey: number; onInvit
             </div>
 
             {/* 描述 */}
-            <p className="line-clamp-2 text-[13px] leading-[1.55] text-ink-48">{run.ideaPreview}</p>
+            <p className="line-clamp-2 text-caption leading-[1.55] text-ink-48">{run.ideaPreview}</p>
             {run.status === "failed" && run.error && (
-              <p className="line-clamp-1 text-[12px] text-error">{run.error}</p>
+              <p className="line-clamp-1 text-fine text-error">{run.error}</p>
             )}
 
-            <div className="mt-auto pt-1 text-[11px] text-ink-40">
+            <div className="mt-auto pt-1 text-fine text-ink-40">
               {new Date(run.createdAt).toLocaleString("zh-CN", {
                 month: "numeric",
                 day: "numeric",

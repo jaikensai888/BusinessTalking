@@ -1,22 +1,20 @@
-# BusinessTalking DSH runtime patch — 关闭默认 skill/web/副作用工具。
+# BusinessTalking DSH runtime patch — 关闭默认 skill/副作用工具，保留 DSH 原生 web 能力。
 # 插件插入由 src/lib/runtime/singleton.ts 运行时用 pathToFileURL 动态生成（可移植），
 # 因为相对路径在 pnpm 布局的 dsh 运行时下无法装载，故必须用绝对 file:// 路径。
 # 基于 `dsh --profile sdk --dump-config` 的真实 id（2026-09-05 核对 0.1.2-rc.1）。
 # 应用顺序在 profile 层之后。
 #
-# P0 遵守：任何 patch 中未列出的入口不能视为安全；smoke 测试断言每个目标 entry
-# 在应用本 patch 后均不在 active roster（见 tests/e2e/dsh-config-smoke.test.ts）。
+# P0 遵守：模型可见能力仍由 BusinessTalking 的 scoped allowlist/guard 控制；
+# smoke 测试同时断言 DSH 原生 web provider 保持 active、默认 web 工具保持 disabled。
 
 # 默认 filesystem Skill provider：关闭，只暴露 BT scoped provider 的 allowlist
 - id: skill-filesystem
   disabled: true
 
-# 网络工具：关闭默认 web 全家（DSH 默认 web_search/web_fetch 全部不可见）
-- id: web
-  disabled: true
+# DSH web capability + DeepSeek native search provider remain active.
+# BusinessTalking registers the model-facing web_search tool per Persona scope
+# below, so Moderator and non-authorized Persona scopes still cannot see it.
 - id: tool-web
-  disabled: true
-- id: web-search-deepseek
   disabled: true
 - id: web-fetch-http
   disabled: true

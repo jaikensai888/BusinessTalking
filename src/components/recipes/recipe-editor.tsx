@@ -131,25 +131,25 @@ export function RecipeEditor({ recipeId }: { recipeId?: string }) {
     <div className="bg-white border border-hairline rounded-lg p-8 max-w-3xl space-y-6">
       <div className="grid grid-cols-2 gap-4">
         <div className="grid gap-2">
-          <label className="text-[14px] font-semibold text-ink-80">配方名称 *</label>
+          <label className="text-caption font-semibold text-ink-80">配方名称 *</label>
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="如：新项目可行性分析" />
         </div>
         <div className="grid gap-2">
-          <label className="text-[14px] font-semibold text-ink-80">描述</label>
+          <label className="text-caption font-semibold text-ink-80">描述</label>
           <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="配方用途" />
         </div>
       </div>
 
       <div className="grid gap-2">
         <div className="flex items-center justify-between">
-          <label className="text-[14px] font-semibold text-ink-80">步骤列表（{steps.length}）</label>
+          <label className="text-caption font-semibold text-ink-80">步骤列表（{steps.length}）</label>
           <Button variant="pearl" onClick={addStep}>
             + 添加步骤
           </Button>
         </div>
 
         {steps.length === 0 ? (
-          <div className="bg-pearl border border-hairline rounded-lg p-10 text-center text-ink-48 text-[14px]">
+          <div className="bg-pearl border border-hairline rounded-lg p-10 text-center text-ink-48 text-caption">
             还没有步骤。点击「+ 添加步骤」，选择 skill 开始编排。
           </div>
         ) : (
@@ -157,22 +157,22 @@ export function RecipeEditor({ recipeId }: { recipeId?: string }) {
             {steps.map((step, i) => (
               <div key={i} className="bg-pearl border border-hairline rounded-lg p-4 space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-[14px] font-semibold text-ink-80">
+                  <span className="text-caption font-semibold text-ink-80">
                     步骤 {i + 1}
-                    {step.personaId && <span className="ml-2 text-primary text-[12px]">含人格视角</span>}
+                    {step.personaId && <span className="ml-2 text-primary text-fine">含人格视角</span>}
                   </span>
                   <div className="flex items-center gap-1">
-                    <button className="px-2 py-1 text-[14px] hover:bg-parchment rounded" onClick={() => moveStep(i, -1)} disabled={i === 0}>
+                    <button className="px-2 py-1 text-caption hover:bg-parchment rounded" onClick={() => moveStep(i, -1)} disabled={i === 0}>
                       ↑
                     </button>
                     <button
-                      className="px-2 py-1 text-[14px] hover:bg-parchment rounded"
+                      className="px-2 py-1 text-caption hover:bg-parchment rounded"
                       onClick={() => moveStep(i, 1)}
                       disabled={i === steps.length - 1}
                     >
                       ↓
                     </button>
-                    <button className="px-2 py-1 text-[14px] text-error hover:bg-parchment rounded" onClick={() => removeStep(i)}>
+                    <button className="px-2 py-1 text-caption text-error hover:bg-parchment rounded" onClick={() => removeStep(i)}>
                       删除
                     </button>
                   </div>
@@ -180,11 +180,11 @@ export function RecipeEditor({ recipeId }: { recipeId?: string }) {
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="grid gap-1">
-                    <label className="text-[12px] text-ink-48">Skill（必选）</label>
+                    <label className="text-fine text-ink-48">Skill（必选）</label>
                     <select
                       value={step.skillId}
                       onChange={(e) => setStep(i, "skillId", e.target.value)}
-                      className="bg-white border border-hairline rounded-[8px] px-3 py-2 text-[15px] outline-none focus:border-primary"
+                      className="bg-white border border-hairline rounded-sm px-3 py-2 text-caption outline-none focus:border-primary"
                     >
                       <option value="">选择 skill…</option>
                       {skills.map((s) => (
@@ -195,11 +195,11 @@ export function RecipeEditor({ recipeId }: { recipeId?: string }) {
                     </select>
                   </div>
                   <div className="grid gap-1">
-                    <label className="text-[12px] text-ink-48">人格视角（可选）</label>
+                    <label className="text-fine text-ink-48">人格视角（可选）</label>
                     <select
                       value={step.personaId}
                       onChange={(e) => setStep(i, "personaId", e.target.value)}
-                      className="bg-white border border-hairline rounded-[8px] px-3 py-2 text-[15px] outline-none focus:border-primary"
+                      className="bg-white border border-hairline rounded-sm px-3 py-2 text-caption outline-none focus:border-primary"
                     >
                       <option value="">无</option>
                       {personas.map((p) => (
@@ -212,7 +212,7 @@ export function RecipeEditor({ recipeId }: { recipeId?: string }) {
                 </div>
 
                 {step.skillId && (
-                  <div className="text-[12px] text-ink-48">
+                  <div className="text-fine text-ink-48">
                     输入：上一步输出 / 商业想法 · 输出：
                     {(() => {
                       const s = skills.find((x) => x.id === step.skillId);
@@ -223,7 +223,7 @@ export function RecipeEditor({ recipeId }: { recipeId?: string }) {
                   </div>
                 )}
                 {step.personaId && (
-                  <div className="flex items-center gap-2 text-[12px] text-ink-48">
+                  <div className="flex items-center gap-2 text-fine text-ink-48">
                     <Avatar name={personas.find((p) => p.id === step.personaId)?.name ?? ""} size="sm" />
                     本步骤将由该人格视角质询
                   </div>
@@ -234,7 +234,7 @@ export function RecipeEditor({ recipeId }: { recipeId?: string }) {
         )}
       </div>
 
-      {error && <p className="text-[14px] text-error">{error}</p>}
+      {error && <p className="text-caption text-error">{error}</p>}
 
       <div className="flex justify-end gap-2">
         <Button variant="secondary" onClick={() => router.back()}>

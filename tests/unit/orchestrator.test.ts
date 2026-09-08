@@ -18,23 +18,33 @@ describe("orchestrator pure helpers", () => {
     expect(() => extractJson("no json here")).toThrow(DshTurnError);
   });
 
-  it("builds a group persona prompt with round, state, outputs, steers", () => {
+  it("builds a group persona prompt with round, state, history, steers", () => {
     const state = emptyState("brief");
-    const prompt = buildGroupPersonaPrompt("张三", "", "brief", 3, state, [{ name: "李四", text: "观点" }], ["插话1"]);
+    const prompt = buildGroupPersonaPrompt("张三", "", "brief", 3, state, [{ id: "m1", sender: "李四", role: "persona", content: "观点" }], ["插话1"]);
     expect(prompt).toContain("第 3 轮");
     expect(prompt).toContain("李四：观点");
     expect(prompt).toContain("插话1");
     expect(prompt).toContain("你是 张三");
   });
 
-  it("omits empty outputs/steers gracefully", () => {
+  it("omits empty history/steers gracefully", () => {
     const prompt = buildGroupPersonaPrompt("张三", "", "brief", 1, emptyState("brief"), [], []);
-    expect(prompt).not.toContain("本轮已完成发言\n\n（尚无）");
-    expect(prompt).toContain("（尚无）");
+    expect(prompt).toContain("（尚无，本轮你是第一个发言的）");
   });
 });
 
 describe("orchestrator moderator P0 fail-closed", () => {
+  it("injects real round message content into the moderator prompt", async () => {
+    const state = emptyState("brief");
+    mockRunDiscussionDshTurn.mockResolvedValueOnce({ status: "completed", finalText: "not json at all" });
+    await runModeratorTurn("d1", 1, state, ["msg-1"], "bt-turn-moderator-c", undefined, 0, [
+      { id: "msg-1", sender: "李四", role: "persona", content: "我认为定价过高" },
+    ]).catch(() => undefined);
+    const prompt = mockRunDiscussionDshTurn.mock.calls[0]?.[0]?.prompt as string;
+    expect(prompt).toContain("# 本轮发言记录");
+    expect(prompt).toContain("[msg-1] 李四：我认为定价过高");
+  });
+
   it("DshTurnError (model turn failure) does not terminate the whole discussion", () => {
     expect(isFatalDiscussionRuntimeError(new DshTurnError())).toBe(false);
   });

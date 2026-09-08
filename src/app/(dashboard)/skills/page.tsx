@@ -84,8 +84,8 @@ export default function SkillsPage() {
     <div className="px-6 py-10">
       <div className="flex items-start justify-between mb-6">
         <div>
-          <h1 className="text-[34px] font-semibold leading-[1.47] tracking-[-0.374px]">Skill 库</h1>
-          <p className="text-ink-48 text-[14px] mt-1">共 {total} 个技能 · 支持手动新增与 npx 命令导入</p>
+          <h1 className="text-display-md font-semibold leading-[1.47] tracking-[-0.374px]">Skill 库</h1>
+          <p className="text-ink-48 text-caption mt-1">共 {total} 个技能 · 支持手动新增与 npx 命令导入</p>
         </div>
         <div className="flex gap-2">
           <Button variant="dark" onClick={() => setImportOpen(true)}>
@@ -109,7 +109,7 @@ export default function SkillsPage() {
             setCategory(e.target.value);
             setPage(1);
           }}
-          className="bg-white border border-hairline rounded-full h-11 px-5 text-[14px] outline-none focus:border-primary"
+          className="bg-white border border-hairline rounded-full h-11 px-5 text-caption outline-none focus:border-primary"
         >
           <option value="">全部分类</option>
           {CATEGORIES.map((c) => (
@@ -121,7 +121,7 @@ export default function SkillsPage() {
       </div>
 
       {error && (
-        <div className="mb-4 bg-white border-l-[3px] border-error rounded-lg p-4 text-[14px] text-ink-80">
+        <div className="mb-4 bg-white border-l-[3px] border-error rounded-sm p-4 text-caption text-ink-80">
           {error}
         </div>
       )}
@@ -161,7 +161,7 @@ export default function SkillsPage() {
           <Button variant="secondary" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
             上一页
           </Button>
-          <span className="px-4 self-center text-[14px] text-ink-48">
+          <span className="px-4 self-center text-caption text-ink-48">
             {page} / {totalPages}
           </span>
           <Button variant="secondary" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>

@@ -129,10 +129,11 @@ export function SpacesCards({
   const viewItems = shown.slice(0, maxItems);
 
   if (loading && spaces.length === 0) {
+    // 骨架屏用白/珍珠色：在浅色画布与暗色瓦片上都能读作「加载中的卡片」
     return (
       <div className="grid gap-5 [grid-template-columns:repeat(auto-fill,minmax(250px,1fr))]">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="h-40 animate-pulse rounded-2xl bg-pearl" />
+          <div key={i} className="h-40 animate-pulse rounded-lg bg-white" />
         ))}
       </div>
     );
@@ -140,15 +141,16 @@ export function SpacesCards({
 
   if (spaces.length === 0) {
     return (
+      // 空态用白卡片：浅色画布与暗色瓦片上都能成立
       <button
         onClick={onNew}
-        className="flex w-full flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-hairline bg-pearl/40 px-8 py-16 text-center transition-colors hover:border-primary/40 hover:bg-pearl/70"
+        className="flex w-full flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed border-hairline bg-white px-8 py-16 text-center transition-colors hover:border-primary/40 hover:bg-pearl"
       >
-        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+        <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-primary/10 text-primary">
           <ArrowRight size={26} weight="bold" />
         </div>
-        <p className="text-[16px] font-semibold text-ink">开启一个会话空间</p>
-        <p className="max-w-md text-[13px] leading-[1.6] text-ink-48">
+        <p className="text-body font-semibold text-ink">开启一个会话空间</p>
+        <p className="max-w-md text-caption leading-[1.6] text-ink-48">
           输入一个商业想法，@ 引用配方做分析，或 @ 多位人格开启一场讨论。
         </p>
       </button>
@@ -157,9 +159,9 @@ export function SpacesCards({
 
   if (viewItems.length === 0) {
     return (
-      <div className="flex w-full flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-hairline bg-pearl/40 px-8 py-14 text-center">
-        <p className="text-[15px] font-medium text-ink">没有匹配的会话</p>
-        <p className="text-[13px] text-ink-48">换个关键词，或清除搜索条件试试。</p>
+      <div className="flex w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-hairline bg-white px-8 py-14 text-center">
+        <p className="text-caption font-semibold text-ink">没有匹配的会话</p>
+        <p className="text-caption text-ink-48">换个关键词，或清除搜索条件试试。</p>
       </div>
     );
   }
@@ -190,8 +192,8 @@ export function SpacesCards({
               }
             }}
             className={cn(
-              "group flex cursor-pointer flex-col gap-3 rounded-2xl border bg-white p-4 text-left transition-all duration-200 outline-none",
-              "hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-[0_14px_44px_rgba(0,0,0,0.08)]",
+              "group flex cursor-pointer flex-col gap-3 rounded-lg border bg-white p-4 text-left transition-all duration-200 outline-none",
+              "hover:border-primary/40 hover:bg-pearl/60",
               selectionMode && isSelected ? "border-primary ring-2 ring-primary/30" : "border-hairline",
               i < 6 && "fl-rise",
               i < 6 && `fl-rise-delay-${(i % 3) + 1}`
@@ -226,7 +228,7 @@ export function SpacesCards({
                       e.stopPropagation();
                       onDelete(s.type, s.id);
                     }}
-                    className="flex h-6 w-6 items-center justify-center rounded-md text-ink-40 transition-colors hover:bg-error/10 hover:text-error"
+                    className="relative flex h-6 w-6 items-center justify-center rounded-sm text-ink-40 transition-colors before:absolute before:-inset-2.5 before:content-[''] hover:bg-error/10 hover:text-error"
                   >
                     <Trash size={14} />
                   </button>
@@ -234,23 +236,23 @@ export function SpacesCards({
               </div>
             </div>
 
-            <span className="line-clamp-1 text-[15px] font-semibold leading-[1.3] text-ink">{s.title}</span>
-            <p className="line-clamp-2 text-[13px] leading-[1.55] text-ink-48">{s.preview}</p>
+            <span className="line-clamp-1 text-caption font-semibold leading-[1.3] text-ink">{s.title}</span>
+            <p className="line-clamp-2 text-caption leading-[1.55] text-ink-48">{s.preview}</p>
 
             <div className="mt-auto flex items-center gap-2 border-t border-divider-soft pt-2.5">
               {s.attachmentName && (
-                <span className="flex min-w-0 items-center gap-1.5 rounded-md bg-pearl px-2 py-1 text-[11px] text-ink-60">
+                <span className="flex min-w-0 items-center gap-1.5 rounded-sm bg-pearl px-2 py-1 text-fine text-ink-60">
                   <FilePdf size={12} className="shrink-0 text-error" />
                   <span className="truncate">{s.attachmentName}</span>
                 </span>
               )}
               {hasProduct && (
-                <span className="flex shrink-0 items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary">
+                <span className="flex shrink-0 items-center gap-1 rounded-sm bg-primary/10 px-2 py-1 text-fine font-semibold text-primary">
                   <FileText size={12} />
                   {isDisc ? `产物 ${s.artifactCount} 份` : "已出报告"}
                 </span>
               )}
-              <span className="ml-auto flex shrink-0 items-center gap-2 text-[11px] text-ink-40">
+              <span className="ml-auto flex shrink-0 items-center gap-2 text-fine text-ink-40">
                 <CopyId id={s.shortId} />
                 {new Date(s.createdAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
               </span>

@@ -105,8 +105,8 @@ export default function PersonasPage() {
     <div className="px-6 py-10">
       <div className="flex items-start justify-between mb-6">
         <div>
-          <h1 className="text-[34px] font-semibold leading-[1.47] tracking-[-0.374px]">人格库</h1>
-          <p className="text-ink-48 text-[14px] mt-1">
+          <h1 className="text-display-md font-semibold leading-[1.47] tracking-[-0.374px]">人格库</h1>
+          <p className="text-ink-48 text-caption mt-1">
             共 {total} 个人格。点击卡片，与人格一对一交流，获得多视角启发
           </p>
         </div>
@@ -118,7 +118,7 @@ export default function PersonasPage() {
         <select
           value={perspectiveType}
           onChange={(e) => setPerspectiveType(e.target.value)}
-          className="h-11 w-full sm:w-auto bg-white border border-hairline rounded-full px-5 text-[14px] outline-none transition-colors hover:border-ink-48/60 focus:border-primary focus:ring-[3px] focus:ring-primary/15"
+          className="h-11 w-full sm:w-auto bg-white border border-hairline rounded-full px-5 text-caption outline-none transition-colors hover:border-ink-48/60 focus:border-primary focus:ring-[3px] focus:ring-primary/15"
         >
           {PERSPECTIVES.map((p) => (
             <option key={p.value} value={p.value}>
@@ -129,15 +129,15 @@ export default function PersonasPage() {
       </div>
 
       {error && (
-        <div className="mb-4 bg-white border-l-[3px] border-error rounded-lg p-4 text-[14px] text-ink-80">{error}</div>
+        <div className="mb-4 bg-white border-l-[3px] border-error rounded-sm p-4 text-caption text-ink-80">{error}</div>
       )}
 
       {loading ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
           {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="overflow-hidden rounded-2xl border border-hairline bg-white p-3">
+            <div key={i} className="overflow-hidden rounded-lg border border-hairline bg-white p-3">
               <div className="flex gap-3">
-                <div className="h-20 w-20 shrink-0 rounded-2xl bg-pearl animate-pulse" />
+                <div className="h-20 w-20 shrink-0 rounded-lg bg-pearl animate-pulse" />
                 <div className="min-w-0 flex-1 space-y-2 py-1">
                   <div className="h-5 w-4/5 rounded bg-pearl animate-pulse" />
                   <div className="h-3 w-2/5 rounded bg-pearl animate-pulse" />
@@ -164,25 +164,25 @@ export default function PersonasPage() {
               key={p.id}
               onClick={() => router.push(`/personas/${p.id}`)}
               aria-label={`与${p.name}交流`}
-              className={`group overflow-hidden bg-white border border-hairline rounded-2xl p-3 flex flex-col text-left cursor-pointer transition-[transform,border-color,box-shadow] duration-200 hover:-translate-y-1 hover:border-primary/40 hover:shadow-[0_12px_28px_rgba(29,29,31,0.10)] focus-visible:ring-2 focus-visible:ring-primary/30 ${
+              className={`group overflow-hidden bg-white border border-hairline rounded-lg p-3 flex flex-col text-left cursor-pointer transition-colors duration-200 hover:border-primary/40 hover:bg-pearl/60 focus-visible:ring-2 focus-visible:ring-primary/30 ${
                 index < 4 ? "fl-rise" : ""
               }`}
             >
               <div className="flex items-start gap-3">
-                <div className="shrink-0 overflow-hidden rounded-2xl bg-canvas">
+                <div className="shrink-0 overflow-hidden rounded-lg bg-canvas">
                   <Avatar
                     src={p.avatarValue ?? PERSONA_AVATARS[p.name]}
                     name={p.name}
                     size="xl"
-                    className="h-20 w-20 rounded-2xl ring-0 shadow-none object-cover transition-transform duration-300 group-hover:scale-[1.04]"
+                    className="h-20 w-20 rounded-lg ring-0 shadow-none object-cover transition-transform duration-300 group-hover:scale-[1.04]"
                   />
                 </div>
 
                 <div className="min-w-0 flex-1 py-1">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <div className="line-clamp-2 text-[17px] font-semibold leading-[1.24]">{p.name}</div>
-                      <div className="mt-1 text-[12px] font-medium text-primary">
+                      <div className="line-clamp-2 text-body font-semibold leading-[1.24]">{p.name}</div>
+                      <div className="mt-1 text-fine font-semibold text-primary">
                         {TYPE_LABEL[p.perspectiveType] ?? p.perspectiveType}
                       </div>
                     </div>
@@ -194,12 +194,12 @@ export default function PersonasPage() {
                     />
                   </div>
                   {p.description && (
-                    <div className="pt-2 text-[13px] text-ink-48 leading-[1.45] line-clamp-3">{p.description}</div>
+                    <div className="pt-2 text-caption text-ink-48 leading-[1.45] line-clamp-3">{p.description}</div>
                   )}
                 </div>
               </div>
 
-              <div className="mt-4 border-t border-divider-soft px-1 pt-3 pb-1 text-[13px] font-medium text-primary">
+              <div className="mt-4 border-t border-divider-soft px-1 pt-3 pb-1 text-caption font-semibold text-primary">
                 与 TA 交流
               </div>
             </button>

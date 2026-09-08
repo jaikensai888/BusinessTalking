@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   ensurePersonaSession: vi.fn(),
   runDiscussionDshTurn: vi.fn(),
   managerIsBusy: vi.fn(),
+  acquireDiscussionRun: vi.fn(),
+  releaseDiscussionRun: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -40,6 +42,11 @@ vi.mock("@/lib/runtime/singleton", () => ({
   getDiscussionSessionManager: () => ({ isBusy: (...args: unknown[]) => mocks.managerIsBusy(...args) }),
 }));
 
+vi.mock("@/lib/discussion/run-lease", () => ({
+  acquireDiscussionRun: (...args: unknown[]) => mocks.acquireDiscussionRun(...args),
+  releaseDiscussionRun: (...args: unknown[]) => mocks.releaseDiscussionRun(...args),
+}));
+
 import { POST } from "@/app/api/v1/discussions/[id]/participants/[participantId]/retry/route";
 
 beforeEach(() => {
@@ -66,6 +73,8 @@ beforeEach(() => {
     outputMessageId: "retry-message-1",
   });
   mocks.managerIsBusy.mockReturnValue(false);
+  mocks.acquireDiscussionRun.mockResolvedValue({ runId: "run-1", leaseUntil: new Date(Date.now() + 60_000) });
+  mocks.releaseDiscussionRun.mockResolvedValue(true);
 });
 
 describe("participant retry route", () => {
@@ -78,9 +87,10 @@ describe("participant retry route", () => {
     expect(mocks.ensurePersonaSession).toHaveBeenCalledWith("d1", "p1");
     expect(mocks.runDiscussionDshTurn).toHaveBeenCalledWith(expect.objectContaining({
       sessionId: "bt-discussion-d1-p1",
+      runId: "run-1",
       attempt: 2,
       prompt: "原始问题",
-      inputSnapshot: { prompt: "原始问题" },
+      inputSnapshot: expect.objectContaining({ prompt: "原始问题", runId: "run-1" }),
     }));
     expect(mocks.discussionUpdate).toHaveBeenCalledWith({
       where: { id: "d1" },

@@ -15,7 +15,7 @@ export const Input = forwardRef<
         "hover:border-ink-48/60",
         "focus:border-primary focus:ring-[3px] focus:ring-primary/15",
         "disabled:bg-parchment disabled:text-ink-48",
-        pill ? "rounded-full px-5" : "rounded-lg px-3.5 text-[15px]",
+        pill ? "rounded-full px-5" : "rounded-sm px-3.5 text-caption",
         className
       )}
       {...props}

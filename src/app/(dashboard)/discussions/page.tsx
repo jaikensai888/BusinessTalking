@@ -10,6 +10,7 @@ import type { DshToolView } from "@/lib/discussion/dsh-turn-projection";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Modal } from "@/components/ui/modal";
 import { CopyId } from "@/components/ui/copy-id";
 import { Markdown } from "@/components/ui/markdown";
 import { DshApprovalPanel } from "@/components/discussions/dsh-approval-panel";
@@ -82,6 +83,8 @@ function DiscussionsContent() {
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [followUp, setFollowUp] = useState<{ personaId: string; name: string } | null>(null);
+  /** ≤1024px 时右侧「参与人 / 产物」面板浮为抽屉，默认收起 */
+  const [panelOpen, setPanelOpen] = useState(false);
 
   useEffect(() => {
     fetch("/api/v1/personas?page_size=100")
@@ -545,12 +548,12 @@ function DiscussionsContent() {
   };
 
   return (
-    <div className="mx-auto max-w-[1500px] h-[calc(100vh-44px)] px-6">
+    <div className="mx-auto h-[calc(100vh-44px)] max-w-[1500px] px-4 sm:px-6">
       {/* 发起讨论（仅非查看模式） */}
       {!viewId && (
         <div
           className={cn(
-            "mb-6 rounded-2xl border border-hairline bg-white p-6 transition-shadow",
+            "mb-6 rounded-lg border border-hairline bg-white p-6 transition-shadow",
             dragOver && "ring-4 ring-primary/40"
           )}
           onDragOver={(e) => {
@@ -565,7 +568,7 @@ function DiscussionsContent() {
             onChange={(e) => setBrief(e.target.value)}
             rows={3}
             placeholder="要讨论的方案/问题，例如：面向独立开发者的 AI 定价分析工具，订阅制月费 49 元，是否可行？"
-            className="w-full resize-y rounded-xl border border-hairline p-3 text-[15px] leading-[1.6] text-ink outline-none focus:border-primary"
+            className="w-full resize-y rounded-lg border border-hairline p-3 text-caption leading-[1.6] text-ink outline-none focus:border-primary"
           />
 
           {/* 引用文件（上传资料） */}
@@ -574,16 +577,16 @@ function DiscussionsContent() {
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
-              className="flex items-center gap-1.5 rounded-lg border border-hairline bg-white px-3 py-1.5 text-[13px] text-ink-60 shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-colors hover:border-primary/40 hover:text-ink"
+              className="flex items-center gap-1.5 rounded-sm border border-hairline bg-white px-3 py-1.5 text-caption text-ink-60 transition-colors hover:border-primary/40 hover:text-ink"
             >
               {uploading ? <SpinnerGap size={14} className="animate-spin" /> : <Plus size={14} weight="bold" />}
               引用文件
             </button>
             {attachment && (
-              <span className="flex items-center gap-2 rounded-lg bg-parchment px-3 py-1.5 text-[13px] text-ink-60">
+              <span className="flex items-center gap-2 rounded-sm bg-parchment px-3 py-1.5 text-caption text-ink-60">
                 <FilePdf size={15} className="shrink-0 text-error" />
                 <span className="max-w-[240px] truncate">{attachment.filename}</span>
-                <span className="text-[11px] text-ink-40">
+                <span className="text-fine text-ink-40">
                   已读取 {attachment.charCount} 字{attachment.truncated ? "（截取）" : ""}
                 </span>
                 <button
@@ -596,7 +599,7 @@ function DiscussionsContent() {
                 </button>
               </span>
             )}
-            <span className="text-[12px] text-ink-40">可拖拽或上传 PDF / TXT / MD</span>
+            <span className="text-fine text-ink-40">可拖拽或上传 PDF / TXT / MD</span>
           </div>
 
           <div className="mt-3 flex flex-wrap gap-2">
@@ -607,7 +610,7 @@ function DiscussionsContent() {
                   key={p.id}
                   onClick={() => toggle(p.id)}
                   className={cn(
-                    "flex items-center gap-2 rounded-full border px-3 py-1.5 text-[13px] transition-colors",
+                    "flex items-center gap-2 rounded-full border px-3 py-1.5 text-caption transition-colors",
                     on ? "border-primary bg-primary/10 text-primary" : "border-hairline text-ink-60 hover:border-primary/40"
                   )}
                 >
@@ -621,7 +624,7 @@ function DiscussionsContent() {
           {/* 普通技能（可选，作为 DSH allowlist） */}
           {skills.length > 0 && (
             <div className="mt-3">
-              <div className="mb-1.5 text-[12px] font-medium text-ink-48">可选技能（运行时按需加载，作为当前讨论的 allowlist）</div>
+              <div className="mb-1.5 text-fine font-semibold text-ink-48">可选技能（运行时按需加载，作为当前讨论的 allowlist）</div>
               <div className="flex flex-wrap gap-2">
                 {skills.map((s) => {
                   const on = selectedSkills.includes(s.id);
@@ -630,7 +633,7 @@ function DiscussionsContent() {
                       key={s.id}
                       onClick={() => toggleSkill(s.id)}
                       className={cn(
-                        "rounded-full border px-3 py-1 text-[12px] transition-colors",
+                        "rounded-full border px-3 py-1 text-fine transition-colors",
                         on ? "border-primary bg-primary/10 text-primary" : "border-hairline text-ink-60 hover:border-primary/40"
                       )}
                     >
@@ -642,7 +645,7 @@ function DiscussionsContent() {
             </div>
           )}
           <div className="mt-4 flex items-center justify-between">
-            <div className="flex items-center gap-2 text-[13px] text-ink-60">
+            <div className="flex items-center gap-2 text-caption text-ink-60">
               {selected.length === 1 ? (
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-primary">
                   <ChatCircleDots size={14} /> 一对一问答交流（你问我答）
@@ -653,7 +656,7 @@ function DiscussionsContent() {
                   <select
                     value={rounds}
                     onChange={(e) => setRounds(Number(e.target.value))}
-                    className="h-9 rounded-lg border border-hairline px-2 text-[14px] outline-none focus:border-primary"
+                    className="h-9 rounded-sm border border-hairline px-2 text-caption outline-none focus:border-primary"
                   >
                     {[2, 3, 5, 8, 10].map((r) => (
                       <option key={r} value={r}>{r}</option>
@@ -666,7 +669,7 @@ function DiscussionsContent() {
               {starting ? "创建中…" : selected.length === 1 ? "开始交流" : "开始讨论"}
             </Button>
           </div>
-          {error && !current && <p className="mt-2 text-[13px] text-error">{error}</p>}
+          {error && !current && <p className="mt-2 text-caption text-error">{error}</p>}
         </div>
       )}
 
@@ -678,20 +681,20 @@ function DiscussionsContent() {
             description="输入方案、勾选 1 或多个人格：多人会互相交锋，单人则与你一对一深度交流。"
           />
         ) : (
-          <div className="h-48 animate-pulse rounded-2xl bg-pearl" />
+          <div className="h-48 animate-pulse rounded-lg bg-pearl" />
         )
       ) : (
-          <div className="flex h-full">
+          <div className="relative flex h-full">
             {/* 左列：聊天（无顶部标题栏） */}
             <div className="flex min-w-0 flex-1 flex-col">
               {error && (
-                <div role="alert" className="mx-4 mt-3 rounded-xl border border-error/20 bg-error/5 px-4 py-3 text-[13px] text-error">
-                  <div className="font-medium">本次回答未完成</div>
-                  <div className="mt-1 break-words text-[12px] leading-5">{error}</div>
+                <div role="alert" className="mx-4 mt-3 rounded-lg border border-error/20 bg-error/5 px-4 py-3 text-caption text-error">
+                  <div className="font-semibold">本次回答未完成</div>
+                  <div className="mt-1 break-words text-fine leading-5">{error}</div>
                 </div>
               )}
               {eventStream.streamError && (
-                <div role="status" className="mx-4 mt-3 flex items-center gap-2 rounded-xl border border-warning/20 bg-warning/5 px-4 py-2.5 text-[12px] text-ink-60">
+                <div role="status" className="mx-4 mt-3 flex items-center gap-2 rounded-lg border border-warning/20 bg-warning/5 px-4 py-2.5 text-fine text-ink-60">
                   <SpinnerGap size={14} className="animate-spin text-warning" />
                   {eventStream.streamError}
                 </div>
@@ -702,10 +705,10 @@ function DiscussionsContent() {
               >
                 {visibleMessages.length === 0 && processTurns.length === 0 ? (
                   <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-                    <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                    <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10 text-primary">
                       <ChatCircleDots size={22} weight="duotone" />
                     </div>
-                    <p className="text-[14px] text-ink-48">
+                    <p className="text-caption text-ink-48">
                       {isOne ? `向 ${current.personas?.[0]?.name ?? "专家"} 提问，开始一对一交流` : "专家们正在陆续登场…"}
                     </p>
                   </div>
@@ -713,9 +716,9 @@ function DiscussionsContent() {
                   visibleMessages.map((m, idx) => {
                     if (m.role === "summary") {
                       return (
-                        <div key={m.id} className="mx-auto max-w-[85%] rounded-2xl border border-success/20 bg-success/10 px-4 py-3 text-[13px] text-ink-80">
-                          <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold text-[#1f7a43]">
-                            <span className="flex h-4 w-4 items-center justify-center rounded-md bg-[#1f7a43]/15">📋</span> 总结
+                        <div key={m.id} className="mx-auto max-w-[85%] rounded-lg border border-success/20 bg-success/10 px-4 py-3 text-caption text-ink-80">
+                          <div className="mb-1.5 flex items-center gap-1.5 text-fine font-semibold text-success-ink">
+                            <span className="flex h-4 w-4 items-center justify-center rounded-sm bg-success-ink/15">📋</span> 总结
                           </div>
                           <Markdown>{m.content}</Markdown>
                         </div>
@@ -733,7 +736,7 @@ function DiscussionsContent() {
                         {newDay && (
                           <div className="flex items-center gap-3 py-2">
                             <div className="h-px flex-1 bg-hairline/70" />
-                            <span className="text-[11px] font-medium tracking-wide text-ink-40">
+                            <span className="text-fine font-semibold tracking-wide text-ink-40">
                               {dayLabel(m.createdAt)} {time}
                             </span>
                             <div className="h-px flex-1 bg-hairline/70" />
@@ -742,16 +745,16 @@ function DiscussionsContent() {
                         <div className={cn("flex items-start gap-3", isUser && "flex-row-reverse")}>
                           <Avatar name={isUser ? "我" : m.sender} size="sm" className="mt-1" />
                           <div className={cn("max-w-[76%]", isUser && "text-right")}>
-                            <div className={cn("mb-1 flex items-baseline gap-1.5 text-[11px] text-ink-40", isUser && "justify-end")}>
-                              <span className="font-medium">{isUser ? "我" : m.sender}</span>
+                            <div className={cn("mb-1 flex items-baseline gap-1.5 text-fine text-ink-40", isUser && "justify-end")}>
+                              <span className="font-semibold">{isUser ? "我" : m.sender}</span>
                               <span className="text-ink-40/60">{time}</span>
                             </div>
                             <div
                               className={cn(
-                                "inline-block rounded-2xl px-4 py-2.5 text-left text-[14px]",
+                                "inline-block rounded-lg px-4 py-2.5 text-left text-caption",
                                 isUser
-                                  ? "bg-primary text-white rounded-2xl rounded-tr-md shadow-[0_6px_18px_rgba(0,102,204,0.22)]"
-                                  : "bg-white text-ink rounded-2xl rounded-tl-md shadow-[0_2px_10px_rgba(0,0,0,0.06)] ring-1 ring-black/5"
+                                  ? "bg-primary text-white rounded-lg rounded-tr-sm"
+                                  : "bg-white text-ink rounded-lg rounded-tl-sm"
                               )}
                             >
                               <Markdown names={personaNames} tone={isUser ? "dark" : "light"}>
@@ -771,7 +774,7 @@ function DiscussionsContent() {
                   <DshTurnProcess key={turn.key} turn={turn} />
                 ))}
                 {running && processTurns.length === 0 && (
-                  <div className="flex items-center gap-2 py-1 text-[12px] text-ink-40">
+                  <div className="flex items-center gap-2 py-1 text-fine text-ink-40">
                     <PaperPlaneTilt size={14} className="animate-pulse" />
                     {isOne ? "正在启动 DSH 会话…" : "讨论正在启动…"}
                   </div>
@@ -787,11 +790,11 @@ function DiscussionsContent() {
                     toolInput={approvalToolInput}
                   />
                 )}
-                <div className="rounded-2xl border border-hairline bg-white shadow-[0_10px_30px_rgba(0,0,0,0.07)] transition-colors focus-within:border-primary/40 focus-within:ring-4 focus-within:ring-primary/10">
+                <div className="rounded-lg border border-hairline bg-white transition-[border-color,box-shadow] focus-within:border-primary/45 focus-within:ring-2 focus-within:ring-primary/10">
                   <div className="relative flex items-end gap-2 p-2">
                     {!isOne && mentionQuery !== null && mentionOptions.length > 0 && (
-                      <div className="absolute bottom-full left-0 right-0 mb-2 overflow-hidden rounded-xl border border-hairline bg-white shadow-[0_8px_24px_rgba(0,0,0,0.1)]">
-                        <div className="border-b border-divider-soft px-3 py-1.5 text-[11px] text-ink-40">选择要 @ 的成员</div>
+                      <div className="absolute bottom-full left-0 right-0 mb-2 overflow-hidden rounded-lg border border-hairline bg-white shadow-float">
+                        <div className="border-b border-divider-soft px-3 py-1.5 text-fine text-ink-40">选择要 @ 的成员</div>
                         <div className="max-h-44 overflow-auto py-1">
                           {mentionOptions.map((p) => (
                             <button
@@ -803,8 +806,8 @@ function DiscussionsContent() {
                             >
                               <Avatar name={p.name} size="sm" />
                               <div>
-                                <div className="text-[13px] font-medium text-ink">{p.name}</div>
-                                <div className="text-[11px] text-ink-40">{TYPE_LABEL[p.perspectiveType] ?? p.perspectiveType}</div>
+                                <div className="text-caption font-semibold text-ink">{p.name}</div>
+                                <div className="text-fine text-ink-40">{TYPE_LABEL[p.perspectiveType] ?? p.perspectiveType}</div>
                               </div>
                             </button>
                           ))}
@@ -837,7 +840,7 @@ function DiscussionsContent() {
                           sendSteer();
                         }
                       }}
-                      className="h-10 flex-1 bg-transparent px-1 text-[14px] text-ink outline-none placeholder:text-ink-40"
+                      className="h-10 flex-1 bg-transparent px-1 text-caption text-ink outline-none placeholder:text-ink-40 focus-visible:outline-none focus-visible:ring-0"
                     />
                     <button
                       type="button"
@@ -845,12 +848,12 @@ function DiscussionsContent() {
                       disabled={sending || Boolean(pendingApproval) || !steer.trim()}
                       aria-label={isOne ? "发送" : "插话"}
                       title={isOne ? "发送" : "插话"}
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-white shadow-[0_6px_16px_rgba(0,102,204,0.3)] transition-all duration-150 hover:bg-[#0071e3] active:scale-95 disabled:opacity-45 disabled:shadow-none"
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-white transition-all duration-150 hover:bg-primary-focus active:scale-95 disabled:opacity-45"
                     >
                       {sending ? <SpinnerGap size={17} weight="bold" className="animate-spin" /> : <ArrowUp size={17} weight="bold" />}
                     </button>
                   </div>
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-t border-divider-soft px-3 py-1.5 text-[11px] text-ink-40">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-t border-divider-soft px-3 py-1.5 text-fine text-ink-40">
                     <div className="flex min-w-0 items-center gap-3">
                       <span>Enter 发送 · Shift+Enter 换行</span>
                       <DiscussionPermissionControl
@@ -860,6 +863,16 @@ function DiscussionsContent() {
                         busy={running || Boolean(pendingApproval)}
                         onUpdated={(value) => setCurrent((prev) => (prev ? { ...prev, ...value } : prev))}
                       />
+                      <button
+                        type="button"
+                        onClick={() => setPanelOpen((o) => !o)}
+                        aria-expanded={panelOpen}
+                        aria-controls="discussion-side-panel"
+                        className="flex items-center gap-1 text-primary transition-colors hover:text-primary-hover lg:hidden"
+                      >
+                        <UsersThree size={13} />
+                        {panelOpen ? "收起面板" : "参与人 / 产物"}
+                      </button>
                     </div>
                     <span className="flex items-center gap-1.5">
                       <span className="h-1.5 w-1.5 rounded-full bg-success" /> 专家在线
@@ -869,25 +882,32 @@ function DiscussionsContent() {
               </div>
             </div>
 
-            {/* 右侧：标题 + 参与人 + 产物/引用 */}
-            <aside className="flex w-[320px] shrink-0 flex-col border-l border-hairline">
+            {/* 右侧：标题 + 参与人 + 产物/引用。≤1024px 浮为抽屉，由底部输入条的按钮开合 */}
+            <aside
+              id="discussion-side-panel"
+              className={cn(
+                "flex w-[320px] max-w-[85vw] shrink-0 flex-col border-l border-hairline bg-white",
+                "max-lg:absolute max-lg:inset-y-0 max-lg:right-0 max-lg:z-40 max-lg:shadow-overlay",
+                panelOpen ? "max-lg:flex" : "max-lg:hidden"
+              )}
+            >
               {/* 上：标题 + id + 总结 */}
               <div className="border-b border-divider-soft bg-white px-4 py-3">
                 <div className="flex items-center gap-2">
                   <span
                     className={cn(
-                      "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                      "shrink-0 rounded-full px-2 py-0.5 text-fine font-semibold",
                       isOne ? "bg-primary/10 text-primary" : "bg-parchment text-ink-60"
                     )}
                   >
                     {isOne ? "1 对 1" : "多人"}
                   </span>
-                  <div className="truncate text-[15px] font-semibold tracking-[-0.2px] text-ink">
+                  <div className="truncate text-caption font-semibold tracking-[-0.2px] text-ink">
                     {isOne ? `${current.personas?.[0]?.name ?? "专家"}` : `讨论：${current.brief.slice(0, 30)}…`}
                   </div>
                 </div>
                 <div className="mt-1 flex items-center justify-between gap-2">
-                  <div className="flex min-w-0 items-center gap-2 text-[12px] text-ink-48">
+                  <div className="flex min-w-0 items-center gap-2 text-fine text-ink-48">
                     <span className="flex items-center gap-1.5">
                       <span
                         className={cn(
@@ -911,16 +931,16 @@ function DiscussionsContent() {
 
               {/* 中：参与人 */}
               <div className="flex min-h-0 flex-[1.1] flex-col">
-                <div className="flex items-center gap-2 border-b border-divider-soft bg-pearl px-4 py-3 text-[12px] font-semibold uppercase tracking-wide text-ink-40">
+                <div className="flex items-center gap-2 border-b border-divider-soft bg-pearl px-4 py-3 text-fine font-semibold uppercase tracking-wide text-ink-40">
                   <UsersThree size={14} /> {isOne ? "交流对象" : "参与人"}（{current.personas?.length ?? 0}）
                 </div>
                 <div className="flex-1 space-y-1 overflow-y-auto bg-pearl p-2">
                   {(current.personas ?? []).map((p) => (
-                    <div key={p.id} className="flex items-center gap-2.5 rounded-lg px-3 py-2 hover:bg-parchment/70">
+                    <div key={p.id} className="flex items-center gap-2.5 rounded-sm px-3 py-2 hover:bg-parchment/70">
                       <Avatar name={p.name} size="sm" />
                       <div className="min-w-0">
-                        <div className="truncate text-[13px] font-medium text-ink">{p.name}</div>
-                        <div className="text-[11px] text-ink-40">{TYPE_LABEL[p.perspectiveType] ?? p.perspectiveType}</div>
+                        <div className="truncate text-caption font-semibold text-ink">{p.name}</div>
+                        <div className="text-fine text-ink-40">{TYPE_LABEL[p.perspectiveType] ?? p.perspectiveType}</div>
                       </div>
                       {canFollowUp && (
                         <button
@@ -930,7 +950,7 @@ function DiscussionsContent() {
                             steerRef.current?.focus();
                           }}
                           className={cn(
-                            "ml-auto shrink-0 rounded-full px-2.5 py-1 text-[11px] transition-colors",
+                            "ml-auto shrink-0 rounded-full px-2.5 py-1 text-fine transition-colors",
                             followUp?.personaId === p.id
                               ? "bg-primary text-white"
                               : "border border-hairline text-ink-60 hover:border-primary/40 hover:text-primary"
@@ -941,11 +961,11 @@ function DiscussionsContent() {
                       )}
                     </div>
                   ))}
-                  <div className="flex items-center gap-2.5 rounded-lg px-3 py-2 hover:bg-parchment/70">
+                  <div className="flex items-center gap-2.5 rounded-sm px-3 py-2 hover:bg-parchment/70">
                     <Avatar name="我" size="sm" />
                     <div>
-                      <div className="text-[13px] font-medium text-ink">我</div>
-                      <div className="text-[11px] text-ink-40">主持人 · {isOne ? "提问" : "可插话"}</div>
+                      <div className="text-caption font-semibold text-ink">我</div>
+                      <div className="text-fine text-ink-40">主持人 · {isOne ? "提问" : "可插话"}</div>
                     </div>
                   </div>
                 </div>
@@ -953,38 +973,38 @@ function DiscussionsContent() {
 
               {/* 下：产物与引用 */}
               <div className="flex min-h-0 flex-[1] flex-col border-t border-divider-soft">
-                <div className="flex items-center gap-2 border-b border-divider-soft bg-pearl px-4 py-3 text-[12px] font-semibold uppercase tracking-wide text-ink-40">
+                <div className="flex items-center gap-2 border-b border-divider-soft bg-pearl px-4 py-3 text-fine font-semibold uppercase tracking-wide text-ink-40">
                   <FileText size={14} /> 产物与引用
                 </div>
                 <div className="flex-1 space-y-3 overflow-y-auto bg-parchment/40 p-3">
                   {current.attachmentName && (
-                    <div className="flex items-center gap-2.5 rounded-lg border border-hairline bg-white p-2.5">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                    <div className="flex items-center gap-2.5 rounded-sm border border-hairline bg-white p-2.5">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm bg-primary/10 text-primary">
                         <FilePdf size={16} weight="duotone" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-[13px] font-medium text-ink">{current.attachmentName}</div>
-                        <div className="text-[11px] text-ink-48">已读取 {current.attachmentCharCount ?? 0} 字{current.attachmentTruncated ? "（截取）" : ""}</div>
+                        <div className="truncate text-caption font-semibold text-ink">{current.attachmentName}</div>
+                        <div className="text-fine text-ink-48">已读取 {current.attachmentCharCount ?? 0} 字{current.attachmentTruncated ? "（截取）" : ""}</div>
                       </div>
                     </div>
                   )}
                   {current.artifacts && current.artifacts.length > 0 ? (
                     <div className="space-y-2.5">
                       {current.artifacts.map((a) => (
-                        <div key={a.id} className="rounded-lg border border-hairline bg-white p-2.5">
-                          <div className="truncate text-[13px] font-medium text-ink">{a.title}</div>
+                        <div key={a.id} className="rounded-sm border border-hairline bg-white p-2.5">
+                          <div className="truncate text-caption font-semibold text-ink">{a.title}</div>
                           {a.summary && (
-                            <div className="mt-0.5 line-clamp-2 text-[11px] leading-[1.5] text-ink-48">{a.summary}</div>
+                            <div className="mt-0.5 line-clamp-2 text-fine leading-[1.5] text-ink-48">{a.summary}</div>
                           )}
-                          <div className="mt-1.5 flex items-center gap-3 text-[11px]">
-                            <button onClick={() => setViewArtifact(a)} className="font-medium text-primary hover:underline">查看</button>
+                          <div className="mt-1.5 flex items-center gap-3 text-fine">
+                            <button onClick={() => setViewArtifact(a)} className="font-semibold text-primary hover:underline">查看</button>
                             <button onClick={() => downloadArtifact(a)} className="text-ink-60 hover:text-primary">下载 md</button>
                           </div>
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <div className="flex items-center gap-2 rounded-lg border border-dashed border-hairline bg-parchment/50 px-3 py-3 text-[11px] text-ink-48">
+                    <div className="flex items-center gap-2 rounded-lg border border-dashed border-hairline bg-parchment/50 px-3 py-3 text-fine text-ink-48">
                       <FileText size={14} className="text-ink-40" /> 点「总结」生成 md 报告
                     </div>
                   )}
@@ -994,42 +1014,28 @@ function DiscussionsContent() {
           </div>
       )}
 
-      {/* 产物预览 */}
-      {viewArtifact && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6"
-          onClick={() => setViewArtifact(null)}
-        >
-          <div
-            className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center gap-3 border-b border-divider-soft px-5 py-4">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <FileText size={16} weight="duotone" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-[15px] font-semibold text-ink">{viewArtifact.title}</div>
-                <div className="text-[12px] text-ink-40">
-                  Markdown 报告 · {new Date(viewArtifact.createdAt).toLocaleString("zh-CN", { hour12: false })}
-                </div>
-              </div>
-              <Button variant="ghost" size="sm" onClick={() => downloadArtifact(viewArtifact)}>
-                下载 md
-              </Button>
-              <button
-                onClick={() => setViewArtifact(null)}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-48 hover:bg-parchment"
-              >
-                <X size={16} />
-              </button>
-            </div>
-            <div className="min-h-0 flex-1 overflow-auto bg-parchment/30 p-5">
-              <pre className="whitespace-pre-wrap text-[13px] leading-[1.7] text-ink">{viewArtifact.content}</pre>
-            </div>
-          </div>
+      {/* 产物预览：统一走 Modal 基元（role=dialog / Escape / 焦点陷阱） */}
+      <Modal
+        open={Boolean(viewArtifact)}
+        onClose={() => setViewArtifact(null)}
+        title={viewArtifact?.title ?? ""}
+        description={
+          viewArtifact
+            ? `Markdown 报告 · ${new Date(viewArtifact.createdAt).toLocaleString("zh-CN", { hour12: false })}`
+            : undefined
+        }
+        headerAction={
+          <Button variant="ghost" size="sm" onClick={() => viewArtifact && downloadArtifact(viewArtifact)}>
+            下载 md
+          </Button>
+        }
+      >
+        <div className="bg-parchment/30 p-5">
+          <pre className="whitespace-pre-wrap text-caption leading-[1.7] text-ink">
+            {viewArtifact?.content}
+          </pre>
         </div>
-      )}
+      </Modal>
 
       {/* 隐藏文件输入（引用文件） */}
       <input

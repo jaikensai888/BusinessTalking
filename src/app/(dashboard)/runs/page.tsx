@@ -58,13 +58,13 @@ export default function RunsHistoryPage() {
     <div className="px-6 py-10 max-w-4xl">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-[34px] font-semibold leading-[1.47] tracking-[-0.374px]">运行历史</h1>
-          <p className="text-ink-48 text-[14px] mt-1">回看所有可行性分析记录</p>
+          <h1 className="text-display-md font-semibold leading-[1.47] tracking-[-0.374px]">运行历史</h1>
+          <p className="text-ink-48 text-caption mt-1">回看所有可行性分析记录</p>
         </div>
         <select
           value={status}
           onChange={(e) => setStatus(e.target.value)}
-          className="bg-white border border-hairline rounded-full h-11 px-5 text-[14px] outline-none focus:border-primary"
+          className="bg-white border border-hairline rounded-full h-11 px-5 text-caption outline-none focus:border-primary"
         >
           <option value="">全部状态</option>
           <option value="pending">等待中</option>
@@ -74,7 +74,7 @@ export default function RunsHistoryPage() {
         </select>
       </div>
 
-      {error && <div className="mb-4 bg-white border-l-[3px] border-error rounded-lg p-4 text-[14px] text-ink-80">{error}</div>}
+      {error && <div className="mb-4 bg-white border-l-[3px] border-error rounded-sm p-4 text-caption text-ink-80">{error}</div>}
 
       {loading ? (
         <div className="space-y-3">
@@ -100,14 +100,14 @@ export default function RunsHistoryPage() {
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-[15px] font-semibold">{r.recipeName}</span>
-                    <span className={cn("text-[12px]", meta.color)}>{meta.label}</span>
+                    <span className="text-caption font-semibold">{r.recipeName}</span>
+                    <span className={cn("text-fine", meta.color)}>{meta.label}</span>
                   </div>
-                  <div className="text-[13px] text-ink-48 mt-0.5 line-clamp-1">
+                  <div className="text-caption text-ink-48 mt-0.5 line-clamp-1">
                     步骤 {Math.min(r.currentStep, r.totalSteps)}/{r.totalSteps} · {r.ideaPreview}
                   </div>
                 </div>
-                <span className="text-[12px] text-ink-48 shrink-0">{new Date(r.createdAt).toLocaleString()}</span>
+                <span className="text-fine text-ink-48 shrink-0">{new Date(r.createdAt).toLocaleString()}</span>
               </button>
             );
           })}

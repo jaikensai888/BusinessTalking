@@ -66,13 +66,13 @@ export default function RecipesPage() {
     <div className="px-6 py-10 max-w-4xl">
       <div className="flex items-start justify-between mb-6">
         <div>
-          <h1 className="text-[34px] font-semibold leading-[1.47] tracking-[-0.374px]">配方</h1>
-          <p className="text-ink-48 text-[14px] mt-1">共 {total} 个配方 · 把 skill 与人格编排成可行性分析流程</p>
+          <h1 className="text-display-md font-semibold leading-[1.47] tracking-[-0.374px]">配方</h1>
+          <p className="text-ink-48 text-caption mt-1">共 {total} 个配方 · 把 skill 与人格编排成可行性分析流程</p>
         </div>
         <Button onClick={() => router.push("/recipes/new")}>+ 新建配方</Button>
       </div>
 
-      {error && <div className="mb-4 bg-white border-l-[3px] border-error rounded-lg p-4 text-[14px] text-ink-80">{error}</div>}
+      {error && <div className="mb-4 bg-white border-l-[3px] border-error rounded-sm p-4 text-caption text-ink-80">{error}</div>}
 
       {loading ? (
         <div className="space-y-3">
@@ -94,15 +94,15 @@ export default function RecipesPage() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <button
-                    className="text-[17px] font-semibold hover:text-primary transition-colors text-left"
+                    className="text-body font-semibold hover:text-primary transition-colors text-left"
                     onClick={() => router.push(`/recipes/${r.id}/edit`)}
                   >
                     {r.name}
                   </button>
-                  <span className="text-[12px] text-ink-48">v{r.version}</span>
+                  <span className="text-fine text-ink-48">v{r.version}</span>
                 </div>
-                {r.description && <div className="text-[13px] text-ink-48 mt-1 line-clamp-1">{r.description}</div>}
-                <div className="text-[12px] text-ink-48 mt-1">
+                {r.description && <div className="text-caption text-ink-48 mt-1 line-clamp-1">{r.description}</div>}
+                <div className="text-fine text-ink-48 mt-1">
                   {r.stepCount} 个步骤 · 已运行 {r.runCount} 次
                 </div>
               </div>

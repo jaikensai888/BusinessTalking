@@ -33,7 +33,9 @@ export function DshApprovalPanel({ discussionId, approval, toolInput, onResolved
   const [error, setError] = useState<string | null>(null);
   const [resolvedApprovalId, setResolvedApprovalId] = useState<string | null>(null);
 
-  const decide = async (outcome: "allowed-session" | "rejected") => {
+  const discussionScoped = approval.scope === "discussion" && approval.toolName === "web_search";
+
+  const decide = async (outcome: "allowed-once" | "allowed-discussion" | "rejected-discussion") => {
     if (submitting) return;
     setSubmitting(true);
     setError(null);
@@ -64,30 +66,40 @@ export function DshApprovalPanel({ discussionId, approval, toolInput, onResolved
   if (resolvedApprovalId === approval.approvalId) return null;
 
   return (
-    <div className="mx-1 mb-2 rounded-xl border border-warning/30 bg-warning/5 px-3.5 py-3" role="dialog" aria-label="DSH 工具审批">
+    <div className="mx-1 mb-2 rounded-lg border border-warning/30 bg-warning/5 px-3.5 py-3" role="dialog" aria-label="DSH 工具审批">
       <div className="flex items-start gap-2.5">
         <ShieldWarning size={20} weight="duotone" className="mt-0.5 shrink-0 text-warning" />
         <div className="min-w-0 flex-1">
-          <div className="text-[13px] font-semibold text-ink">需要你的批准</div>
-          <div className="mt-0.5 text-[12px] text-ink-60">
-            DSH 请求调用 <span className="font-medium text-ink">{approval.toolName}</span>，当前讨论仍在等待。
+          <div className="text-caption font-semibold text-ink">需要你的批准</div>
+          <div className="mt-0.5 text-fine text-ink-60">
+            DSH 请求调用 <span className="font-semibold text-ink">{approval.toolName}</span>，当前讨论仍在等待。
+            {discussionScoped ? "允许后，本次讨论中的所有 Persona Session 都可继续使用该工具。" : "仅放行当前工具调用。"}
           </div>
-          {approval.reason && <div className="mt-1 text-[12px] leading-5 text-ink-60">原因：{approval.reason}</div>}
+          {approval.reason && <div className="mt-1 text-fine leading-5 text-ink-60">原因：{approval.reason}</div>}
           {displayValue(toolInput) && (
-            <div className="mt-2 rounded-lg bg-white/70 px-2.5 py-2 text-[11px] leading-4 text-ink-48">
+            <div className="mt-2 rounded-sm bg-white/70 px-2.5 py-2 text-fine leading-4 text-ink-48">
               参数：<span className="break-words">{displayValue(toolInput)}</span>
             </div>
           )}
-          {error && <div className="mt-2 text-[12px] text-error">{error}</div>}
+          {error && <div className="mt-2 text-fine text-error">{error}</div>}
           <div className="mt-2.5 flex items-center gap-2">
-            <Button variant="secondary" size="sm" onClick={() => void decide("rejected")} disabled={submitting}>
-              {submitting ? <SpinnerGap size={14} className="animate-spin" /> : <X size={14} />}
-              拒绝
-            </Button>
-            <Button variant="primary" size="sm" onClick={() => void decide("allowed-session")} disabled={submitting}>
-              {submitting ? <SpinnerGap size={14} className="animate-spin" /> : <Check size={14} />}
-              本次会话允许
-            </Button>
+            {discussionScoped ? (
+              <>
+                <Button variant="secondary" size="sm" onClick={() => void decide("rejected-discussion")} disabled={submitting}>
+                  {submitting ? <SpinnerGap size={14} className="animate-spin" /> : <X size={14} />}
+                  拒绝本次讨论
+                </Button>
+                <Button variant="primary" size="sm" onClick={() => void decide("allowed-discussion")} disabled={submitting}>
+                  {submitting ? <SpinnerGap size={14} className="animate-spin" /> : <Check size={14} />}
+                  允许本次讨论
+                </Button>
+              </>
+            ) : (
+              <Button variant="primary" size="sm" onClick={() => void decide("allowed-once")} disabled={submitting}>
+                {submitting ? <SpinnerGap size={14} className="animate-spin" /> : <Check size={14} />}
+                仅允许本次调用
+              </Button>
+            )}
           </div>
         </div>
       </div>
