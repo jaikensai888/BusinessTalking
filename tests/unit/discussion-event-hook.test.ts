@@ -35,6 +35,27 @@ describe("useDiscussionEvents protocol helpers", () => {
     expect(nextReconnectDelay(99)).toBe(30_000);
   });
 
+  it("clears pending approval when the bridge sends a minimal decision frame", () => {
+    let state = applyDiscussionSseFrame(emptyHookState(), {
+      event: "approval",
+      data: { type: "approval-request", approvalId: "a1", discussionId: "d1", sessionId: "s1", toolName: "web_search" },
+    });
+    state = applyDiscussionSseFrame(state, {
+      event: "approval",
+      data: { type: "approval-decision", approvalId: "a1", outcome: "allowed-once" },
+    });
+    expect(state.process.pendingApprovals).toEqual([]);
+    expect(state.cursor).toBe(0);
+  });
+
+  it("does not accept incomplete approval requests", () => {
+    const state = applyDiscussionSseFrame(emptyHookState(), {
+      event: "approval",
+      data: { type: "approval-request", approvalId: "a1" },
+    });
+    expect(state.process.pendingApprovals).toEqual([]);
+  });
+
   it("ignores frames from disposed or superseded SSE connections", () => {
     expect(isDiscussionSseConnectionActive(true, 1, 1)).toBe(false);
     expect(isDiscussionSseConnectionActive(false, 1, 2)).toBe(false);

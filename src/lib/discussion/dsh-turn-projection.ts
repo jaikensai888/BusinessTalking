@@ -2,8 +2,8 @@ import type { DiscussionLiveEvent as LedgerDiscussionLiveEvent } from "@/lib/dsh
 
 export type DiscussionLiveEvent = LedgerDiscussionLiveEvent;
 
-export interface DiscussionApprovalProjectionEvent {
-  type: "approval-request" | "approval-decision";
+interface DiscussionApprovalRequestEvent {
+  type: "approval-request";
   approvalId: string;
   discussionId: string;
   sessionId: string;
@@ -14,6 +14,19 @@ export interface DiscussionApprovalProjectionEvent {
   outcome?: string;
   requestedAt?: number;
 }
+
+// The bridge's decision notification only carries the approval ID and outcome.
+export type DiscussionApprovalProjectionEvent = DiscussionApprovalRequestEvent | {
+  type: "approval-decision";
+  approvalId: string;
+  outcome?: string;
+  discussionId?: string;
+  sessionId?: string;
+  toolName?: string;
+  scope?: "discussion" | "session";
+  callId?: string;
+  reason?: string;
+};
 
 export type DiscussionProjectionEvent = DiscussionLiveEvent | DiscussionApprovalProjectionEvent;
 

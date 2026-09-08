@@ -88,9 +88,10 @@ function isDiscussionLiveEvent(value: unknown): value is DiscussionLiveEvent {
 
 function isApprovalEvent(value: unknown): value is DiscussionProjectionEvent {
   if (!isRecord(value)) return false;
-  if (value.type !== "approval-request" && value.type !== "approval-decision") return false;
-  return typeof value.approvalId === "string"
-    && typeof value.discussionId === "string"
+  if (typeof value.approvalId !== "string" || !value.approvalId) return false;
+  if (value.type === "approval-decision") return true;
+  if (value.type !== "approval-request") return false;
+  return typeof value.discussionId === "string"
     && typeof value.sessionId === "string"
     && typeof value.toolName === "string"
     && (value.scope === undefined || value.scope === "discussion" || value.scope === "session");
