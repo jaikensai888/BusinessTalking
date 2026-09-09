@@ -5,7 +5,7 @@
  *  视觉观感差；改为 primary（品牌蓝）明度阶梯——仍是单一强调色、不引入
  *  第二色相，但头像之间有可感知的深浅区分。四档对白字均 ≥4.5:1（WCAG AA）。
  *  ⚠ 修改 globals.css 的 primary 色值时评估同步此处。 */
-const PALETTE = ["#0a4d8c", "#0d66c2", "#0877dd", "#0059b3"] as const;
+const PALETTE = ["#0a4d8c", "#0d66c2", "#0876da", "#0059b3"] as const;
 
 /** 按名称稳定取一个强调色 */
 export function avatarColor(name: string): string {

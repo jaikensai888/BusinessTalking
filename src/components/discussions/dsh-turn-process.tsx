@@ -89,12 +89,12 @@ export function DshTurnProcess({ turn, name = "讨论主持人" }: DshTurnProces
 
   return (
     <section className="min-w-0" aria-label={`${name}的处理过程`}>
-      <div className="mb-2 flex items-center gap-2 text-caption font-semibold text-ink"><Avatar name={name} size="sm" />{name}{turn.turnNumber !== undefined && <span className="text-fine font-normal text-ink-48">第 {turn.turnNumber} 轮</span>}</div>
+      <div className="mb-1 flex items-center gap-2 text-caption font-semibold text-ink"><Avatar name={name} size="sm" />{name}{turn.turnNumber !== undefined && <span className="text-fine font-normal text-ink-48">第 {turn.turnNumber} 轮</span>}</div>
       <button
         type="button"
         aria-expanded={expanded}
         onClick={() => setManualExpanded(!expanded)}
-        className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 py-2 text-left text-caption text-ink-60 transition-colors hover:bg-white"
+        className="flex min-h-8 w-full items-center gap-2 rounded-md px-2 py-1 text-left text-caption text-ink-60 transition-colors hover:bg-white"
       >
         {expanded ? <CaretDown size={14} className="shrink-0 text-ink-40" /> : <CaretRight size={14} className="shrink-0 text-ink-40" />}
         <span className="text-ink-48">{title}</span><span className="hidden text-fine text-ink-48 sm:inline">{turn.tools.length > 0 ? `· ${turn.tools.length} 项操作` : ""}</span>
@@ -160,7 +160,7 @@ export function DshTurnProcess({ turn, name = "讨论主持人" }: DshTurnProces
           )}
         </div>
       )}
-      {!turn.hasFinalMessage && turn.liveAnswer && <div className="mt-2 rounded-lg bg-white px-4 py-3 text-base leading-7"><Markdown>{turn.liveAnswer}</Markdown></div>}
+      {!turn.hasFinalMessage && turn.liveAnswer && <div className="mt-1 w-fit max-w-full rounded-lg bg-white px-3.5 py-2 text-base leading-6"><Markdown>{turn.liveAnswer}</Markdown></div>}
       <SearchSources tools={turn.tools} />
     </section>
   );

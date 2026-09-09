@@ -12,6 +12,7 @@ import {
   TagSimple,
   type Icon,
 } from "@phosphor-icons/react";
+import { MentionList, useMentionNavigation } from "@/components/ui/mention-list";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -163,8 +164,8 @@ function WorkspaceContent() {
    * 判断输入框当前是否正在输入 @提及，并提取查询词。
    * 基于文本末尾的 @token（无空格）而非光标位置——兼容中文 IME 组合输入（组合期间光标不可靠）。
    */
-  const handleBeforeInput = (value: string) => {
-    const m = value.match(/@([^\s@]*)$/);
+  const handleBeforeInput = (value: string, cursor = value.length) => {
+    const m = value.slice(0, cursor).match(/@([^\s@]*)$/);
     if (m) {
       setMentionQuery(m[1]);
       setMentionOpen(true);
@@ -175,8 +176,13 @@ function WorkspaceContent() {
 
   /** 仅替换文本末尾正在输入的 @token；若末尾无 @token 则追加。保留已在文本中的其他人格/配方 */
   const replaceActiveMention = (insert: string) => {
-    const m = text.match(/@[^\s@]*$/);
-    return m ? `${text.slice(0, m.index)}${insert}` : `${text} ${insert}`.trimStart();
+    const cursor = inputRef.current?.selectionStart ?? text.length;
+    const before = text.slice(0, cursor);
+    const m = before.match(/@[^\s@]*$/);
+    const prefix = m ? before.slice(0, m.index) : `${before}${before && !/\s$/.test(before) ? " " : ""}`;
+    const nextCursor = prefix.length + insert.length;
+    requestAnimationFrame(() => { inputRef.current?.focus(); inputRef.current?.setSelectionRange(nextCursor, nextCursor); });
+    return `${prefix}${insert}${text.slice(cursor)}`;
   };
 
   const setPersona = (p: PersonaOption) => {
@@ -192,6 +198,18 @@ function WorkspaceContent() {
     setText(replaceActiveMention(`@${recipe.name} `));
     inputRef.current?.focus();
   };
+
+  const mentionItems = [
+    ...filteredPersonas.map((p) => ({ id: `persona:${p.id}`, name: p.name, detail: "人物 · 讨论" })),
+    ...filteredRecipes.map((r) => ({ id: `recipe:${r.id}`, name: r.name, detail: `${r.stepCount} 步 · 配方` })),
+  ];
+  const mentionVisible = mentionOpen && !recipeDropdown && !personaDropdown;
+  const selectMention = (option: { id: string }) => {
+    const persona = personas.find((p) => `persona:${p.id}` === option.id);
+    if (persona) setPersona(persona);
+    else { const recipe = recipes.find((r) => `recipe:${r.id}` === option.id); if (recipe) setRecipe(recipe); }
+  };
+  const mentionNav = useMentionNavigation(mentionItems, mentionVisible, selectMention, () => setMentionOpen(false));
 
   /** 上传并读取文件文本（pdf/txt 等） */
   const onFile = async (file: File) => {
@@ -327,6 +345,7 @@ function WorkspaceContent() {
   };
 
   const submit = () => {
+    if (running || uploading) return;
     const idea = text.replace(/@[^\s@]*/g, "").trim();
     const tokens = Array.from(text.matchAll(/@([^\s@]+)/g)).map((m) => m[1].trim()).filter(Boolean);
     const matchedPersonas = personas.filter((p) => tokens.some((t) => p.name.includes(t) || t.includes(p.name)));
@@ -355,8 +374,8 @@ function WorkspaceContent() {
   return (
     <div className="min-h-full">
       {/* hero：浅色统一（页面底色即画布，无深色卡片）。relative z-30 让输入下拉浮于下方“会话空间”卡片之上 */}
-      <section className="relative z-30 mx-auto max-w-[1400px] px-4 pt-10 pb-2 sm:px-6 sm:pt-14">
-        <div className="fl-rise mx-auto flex max-w-2xl flex-col items-center gap-6">
+      <section className="relative z-30 mx-auto max-w-[1400px] px-4 pt-6 pb-2 sm:px-6 sm:pt-8">
+        <div className="fl-rise mx-auto flex max-w-2xl flex-col items-center gap-4">
           <div className="text-center">
             <ParticleWordmark />
             <h1 className="mt-2 text-display-md font-semibold leading-[1.15] tracking-[-0.4px] text-ink md:text-display-md">
@@ -386,13 +405,19 @@ function WorkspaceContent() {
               <textarea
                 ref={inputRef}
                 value={text}
-                rows={4}
+                rows={3}
+                aria-label="商业想法"
+                aria-autocomplete="list"
+                aria-controls={mentionVisible ? "workspace-mentions" : undefined}
+                aria-activedescendant={mentionVisible && mentionItems.length ? `workspace-mentions-${mentionNav.activeIndex}` : undefined}
                 placeholder="输入你的商业想法，例如：面向独立开发者的 AI 定价分析工具，订阅制，月费 49 元…"
                 onChange={(e) => {
                   setText(e.target.value);
-                  handleBeforeInput(e.target.value);
+                  handleBeforeInput(e.target.value, e.target.selectionStart);
                 }}
                 onKeyDown={(e) => {
+                  if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                  if (mentionNav.onKeyDown(e)) return;
                   if (e.key === "Escape") {
                     setMentionOpen(false);
                     setRecipeDropdown(false);
@@ -431,15 +456,15 @@ function WorkspaceContent() {
                   >
                     {uploading ? <SpinnerGap size={16} className="animate-spin" /> : <Plus size={16} weight="bold" />}
                   </button>
-                  <Chip icon={TagSimple} label="选配方" caret onClick={() => setRecipeDropdown((o) => !o)} />
-                  <Chip icon={SpinnerGap} label="人格视角" caret onClick={() => setPersonaDropdown((o) => !o)} />
+                  <Chip icon={TagSimple} label="选配方" caret onClick={() => { setRecipeDropdown((o) => !o); setPersonaDropdown(false); setMentionOpen(false); }} />
+                  <Chip icon={SpinnerGap} label="人格视角" caret onClick={() => { setPersonaDropdown((o) => !o); setRecipeDropdown(false); setMentionOpen(false); }} />
                   <Chip icon={DownloadSimple} label="导入 Skill" onClick={() => router.push("/skills")} />
                   <Chip icon={Plus} label="新建配方" onClick={() => router.push("/recipes/new")} />
                 </div>
                 {/* 发送按钮与输入控件一体 */}
                 <button
                   onClick={submit}
-                  disabled={running}
+                  disabled={running || uploading || (!text.trim() && !attachment)}
                   aria-label="开始分析"
                   title="开始分析"
                   className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-white transition-all duration-150 hover:bg-primary-hover active:scale-95 disabled:opacity-45"
@@ -449,43 +474,9 @@ function WorkspaceContent() {
               </div>
             </div>
 
-            {/* @ 配方 联想（输入时） */}
-            {mentionOpen && !recipeDropdown && (
-              <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-lg border border-hairline bg-white text-ink shadow-float">
-                <div className="max-h-60 overflow-auto py-1">
-                  {filteredRecipes.length === 0 && filteredPersonas.length === 0 ? (
-                    <div className="px-4 py-3 text-caption text-ink-48">没有匹配的配方或人格</div>
-                  ) : (
-                    <>
-                      {filteredPersonas.map((p) => (
-                        <button
-                          key={p.id}
-                          onClick={() => setPersona(p)}
-                          className="flex w-full items-center gap-2.5 px-4 py-2 text-left text-caption hover:bg-parchment"
-                        >
-                          <Avatar name={p.name} size="sm" />
-                          <span>{p.name}</span>
-                          <span className="ml-auto text-fine text-ink-40">人物 · 讨论</span>
-                        </button>
-                      ))}
-                      {filteredRecipes.map((r) => (
-                        <button
-                          key={r.id}
-                          onClick={() => setRecipe(r)}
-                          className="flex w-full items-center justify-between px-4 py-2.5 text-left text-caption hover:bg-parchment"
-                        >
-                          <span className="flex items-center gap-2">
-                            <TagSimple size={14} className="text-ink-40" />
-                            {r.name}
-                          </span>
-                          <span className="text-fine text-ink-40">{r.stepCount} 步</span>
-                        </button>
-                      ))}
-                    </>
-                  )}
-                </div>
-              </div>
-            )}
+            {mentionVisible && <div className="absolute left-0 right-0 top-full z-50 mt-2">
+              <MentionList id="workspace-mentions" options={mentionItems} activeIndex={mentionNav.activeIndex} onActivate={mentionNav.activate} onSelect={selectMention} />
+            </div>}
 
             {/* 选配方 下拉（chips 触发） */}
             {recipeDropdown && (
@@ -535,14 +526,14 @@ function WorkspaceContent() {
             )}
           </div>
 
-          <p className="text-center text-caption text-ink-40">可拖拽或上传 PDF / TXT / MD，内容将作为分析资料</p>
+          <p className="text-center text-caption text-ink-40">@ 选择人物或配方 · Enter 发送 · Shift+Enter 换行 · 支持上传资料</p>
 
           {error && <p className="text-caption text-error">{error}</p>}
         </div>
       </section>
 
       {/* 会话空间：浅色画布上的白卡片流（用户反馈暗色瓦片过重，回退浅色） */}
-      <section className="mt-6 py-14">
+      <section className="mt-4 py-6">
         <div className="mx-auto max-w-[1440px] px-4 sm:px-6">
           <div className="mb-5 flex items-center justify-between">
             <h2 className="text-tagline font-semibold text-ink">会话空间</h2>

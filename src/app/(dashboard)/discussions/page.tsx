@@ -5,6 +5,8 @@ import { useSearchParams } from "next/navigation";
 import { ArrowUp, ChatCircleDots, FilePdf, FileText, Plus, SpinnerGap, X } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import { getOneOnOneFailure, hasNewPersonaReply, isOneOnOneReplyPending } from "@/lib/discussion/live-state";
+import { MentionList, useMentionNavigation } from "@/components/ui/mention-list";
+import { composerStatus, composerTarget } from "@/lib/discussion/composer-state";
 import { useDiscussionEvents } from "@/hooks/use-discussion-events";
 import type { DshToolView } from "@/lib/discussion/dsh-turn-projection";
 import { assignProcessTurns } from "@/lib/discussion/message-order";
@@ -509,6 +511,17 @@ function DiscussionsContent() {
     }
   };
 
+  useEffect(() => {
+    const input = steerRef.current;
+    if (!input) return;
+    const resize = () => { input.style.height = "0px"; input.style.height = `${Math.min(input.scrollHeight, 128)}px`; };
+    resize();
+    let width = input.clientWidth;
+    const observer = new ResizeObserver(() => { if (input.clientWidth !== width) { width = input.clientWidth; resize(); } });
+    observer.observe(input);
+    return () => observer.disconnect();
+  }, [steer, current?.id]);
+
   const mentionOptions =
     mentionQuery !== null
       ? (current?.personas ?? []).filter((p) => p.name.includes(mentionQuery))
@@ -528,6 +541,9 @@ function DiscussionsContent() {
       input?.setSelectionRange(nextPos, nextPos);
     });
   };
+
+  const mentionVisible = !followUp && (current?.personas.length ?? 0) > 1 && mentionQuery !== null;
+  const mentionNav = useMentionNavigation(mentionOptions, mentionVisible, (option) => insertMention(option.name), () => setMentionQuery(null));
 
   const downloadArtifact = (a: Artifact) => {
     const blob = new Blob([a.content], { type: "text/markdown;charset=utf-8" });
@@ -577,6 +593,13 @@ function DiscussionsContent() {
     return ({ pending: "等待开始", running: "正在处理", completed: "本轮完成", failed: "回答失败", archived: "已归档" } as Record<string, string>)[participant?.status ?? ""] ?? "等待开始";
   };
   const discussionStatus = pendingApproval ? "等待批准" : running ? "讨论进行中" : current?.status === "failed" ? "讨论未完成" : "可继续提问";
+  const composerRecipient = followUp?.name ?? (isOne ? current?.personas[0]?.name ?? "专家" : "所有人");
+  const composerTargetLabel = composerTarget({
+    followUpName: followUp?.name,
+    isOne,
+    personaName: current?.personas[0]?.name ?? "专家",
+  });
+  const composerStatusLabel = composerStatus({ pendingApproval: Boolean(pendingApproval), sending });
   const roundNumber = Math.max(current?.discussionState?.round ?? 0, ...processTurns.map((t) => t.turnNumber ?? 0), ...visibleMessages.filter((m) => m.role === "persona").map((m) => m.turn));
   const roundLabel = roundNumber > 0
     ? `第 ${roundNumber} / ${current?.rounds ?? 0} 轮`
@@ -727,7 +750,7 @@ function DiscussionsContent() {
       ) : (
 
         <div className="flex h-full min-h-0 flex-col">
-          <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-hairline py-3">
+          <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-hairline py-2">
             <div className="min-w-0 flex-1">
               <h1 className="truncate text-body font-semibold" title={current.brief}>{current.brief}</h1>
               <div className="mt-1 flex flex-wrap items-center gap-2 text-fine text-ink-48" role="status">
@@ -750,7 +773,7 @@ function DiscussionsContent() {
                 followScrollRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
                 if (followScrollRef.current) setHasNewUpdates(false);
               }}>
-                <div className="mx-auto max-w-[860px] space-y-6 px-2 py-6 sm:px-5">
+                <div className="mx-auto max-w-[1080px] space-y-3 px-2 py-3 sm:px-4">
                   {visibleMessages.length === 0 && processTurns.length === 0 && <div className="py-16 text-center text-caption text-ink-48">{running ? "正在准备讨论，专家回复将在这里显示…" : "提出你的问题，开始交流。"}</div>}
                   {visibleMessages.map((message, index) => {
                     if (message.role === "summary") return <article key={message.id} className="rounded-lg border border-primary/15 bg-white p-5 text-base"><div className="mb-3 text-caption font-semibold text-primary">讨论总结</div><Markdown>{message.content}</Markdown><CopyText text={message.content} label="复制总结" /></article>;
@@ -759,14 +782,14 @@ function DiscussionsContent() {
                     const isUser = message.role === "user";
                     const previous = visibleMessages[index - 1];
                     return <Fragment key={message.id}>
-                      {(!previous || dayLabel(previous.createdAt) !== dayLabel(message.createdAt)) && <div className="py-2 text-center text-fine text-ink-48">{dayLabel(message.createdAt)}</div>}
+                      {(!previous || dayLabel(previous.createdAt) !== dayLabel(message.createdAt)) && <div className="py-1 text-center text-fine text-ink-48">{dayLabel(message.createdAt)}</div>}
                       <article className={cn("min-w-0", isUser && "ml-auto max-w-[90%] sm:max-w-[80%]")}>
-                        {process ? <DshTurnProcess turn={process} name={message.sender} /> : <div className={cn("mb-2 flex items-center gap-2 text-caption", isUser && "justify-end")}><Avatar name={isUser ? "我" : message.sender} size="sm" /><span className="font-semibold">{isUser ? "我" : message.sender}</span><time className="text-fine text-ink-48" dateTime={message.createdAt}>{new Date(message.createdAt).toLocaleTimeString("zh-CN", {hour: "2-digit", minute: "2-digit"})}</time></div>}
-                        <div className={cn("mt-2 rounded-lg px-4 py-3 text-base leading-7 sm:px-5 sm:py-4", isUser ? "bg-primary text-white" : "bg-white text-ink")}>
+                        {process ? <DshTurnProcess turn={process} name={message.sender} /> : <div className={cn("mb-1 flex items-center gap-2 text-caption", isUser && "justify-end")}><Avatar name={isUser ? "我" : message.sender} size="sm" /><span className="font-semibold">{isUser ? "我" : message.sender}</span><time className="text-fine text-ink-48" dateTime={message.createdAt}>{new Date(message.createdAt).toLocaleTimeString("zh-CN", {hour: "2-digit", minute: "2-digit"})}</time></div>}
+                        <div className={cn("mt-1 w-fit max-w-full rounded-lg px-3.5 py-2 text-base leading-6", isUser ? "ml-auto bg-primary text-white" : "bg-white text-ink")}>
                           <Markdown names={personaNames} tone={isUser ? "dark" : "light"}>{message.content}</Markdown>
                           {message.streaming && <span className="text-caption text-ink-48">正在回答…</span>}
                         </div>
-                        <div className={cn("flex items-center gap-1", isUser && "justify-end")}><CopyText text={message.content} label="复制发言" />{!isUser && <button type="button" onClick={() => quoteMessage(message)} className="min-h-11 rounded-sm px-2 text-fine text-ink-48 hover:bg-white hover:text-primary">引用追问</button>}</div>
+                        <div className={cn("flex items-center gap-1", isUser && "justify-end")}><CopyText text={message.content} label="复制发言" compact />{!isUser && <button type="button" onClick={() => quoteMessage(message)} className="min-h-8 rounded-sm px-2 text-fine text-ink-48 hover:bg-white hover:text-primary">引用追问</button>}</div>
                       </article>
                     </Fragment>;
                   })}
@@ -774,23 +797,34 @@ function DiscussionsContent() {
                 </div>
               </div>
               {hasNewUpdates && <button type="button" className="absolute bottom-48 left-1/2 z-10 min-h-11 -translate-x-1/2 rounded-full border border-hairline bg-white px-4 text-caption text-primary shadow-float" onClick={() => { followScrollRef.current = true; setHasNewUpdates(false); if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }}>有新回复 ↓</button>}
-              <div className="mx-auto w-full max-w-[860px] shrink-0 px-2 pb-4 pt-2 sm:px-5">
+              <div className="mx-auto w-full max-w-[1080px] shrink-0 px-2 pb-2 pt-1 sm:px-4">
                 {pendingApproval && <DshApprovalPanel discussionId={current.id} approval={pendingApproval} toolInput={approvalToolInput} />}
-                <div className="rounded-lg border border-hairline bg-white p-3 focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/10">
-                  <div className="mb-1 flex items-center justify-between text-fine text-ink-48"><span>{followUp ? "追问 " + followUp.name : isOne ? "发送给 " + current.personas[0].name : "发送给所有人 · @ 点名"}</span>{followUp && <button type="button" onClick={() => setFollowUp(null)} className="min-h-11 px-2 text-primary">取消追问</button>}</div>
-                  <div className="relative flex items-end gap-2">
-                    {!isOne && mentionQuery !== null && mentionOptions.length > 0 && <div className="absolute bottom-full left-0 z-20 mb-2 max-h-52 w-full overflow-y-auto rounded-md border border-hairline bg-white p-1 shadow-float" aria-label="选择提及成员">{mentionOptions.map((p) => <button key={p.id} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => insertMention(p.name)} className="flex min-h-11 w-full items-center gap-2 rounded-sm px-3 text-left text-caption hover:bg-parchment"><Avatar name={p.name} size="sm" />{p.name}</button>)}</div>}
-                    <textarea ref={steerRef} rows={2} aria-label="讨论消息" aria-describedby="discussion-send-hint" value={steer} onChange={handleSteerChange} placeholder="写下你的问题或观点…" onKeyDown={(event) => {
+                <div className="rounded-lg border border-hairline bg-white p-2.5 transition-colors focus-within:border-primary/45 sm:p-3">
+                  <div className="flex items-center justify-between gap-3 px-1.5 pb-2">
+                    <div className="flex min-w-0 items-center gap-2 text-fine">
+                      <Avatar name={composerRecipient} size="sm" />
+                      <span className="truncate text-ink-60">{composerTargetLabel}</span>
+                      {!isOne && !followUp && <span className="shrink-0 text-ink-40">· @ 点名</span>}
+                      {(sending || pendingApproval) && <span className={cn("shrink-0 rounded-full px-2 py-0.5 font-semibold", pendingApproval ? "bg-warning/12 text-warning-ink" : "bg-primary/10 text-primary")}>{composerStatusLabel.label}</span>}
+                    </div>
+                    {followUp && <button type="button" onClick={() => setFollowUp(null)} className="min-h-8 shrink-0 rounded-full bg-parchment px-2.5 text-fine text-ink-60 transition-colors hover:bg-primary/10 hover:text-primary">取消追问</button>}
+                  </div>
+                  <div className="relative flex items-end gap-2 rounded-md bg-parchment/45 px-2.5 py-2">
+                    {mentionVisible && <div className="absolute bottom-full left-0 right-0 z-20 mb-2"><MentionList id="discussion-mentions" options={mentionOptions} activeIndex={mentionNav.activeIndex} onActivate={mentionNav.activate} onSelect={(option) => insertMention(option.name)} /></div>}
+                    <textarea ref={steerRef} rows={1} aria-autocomplete="list" aria-controls={mentionVisible ? "discussion-mentions" : undefined} aria-activedescendant={mentionVisible && mentionOptions.length ? `discussion-mentions-${mentionNav.activeIndex}` : undefined} aria-label="讨论消息" aria-describedby="discussion-send-hint" value={steer} onChange={handleSteerChange} placeholder="写下你的问题或观点…" onKeyDown={(event) => {
                       if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+                      if (mentionNav.onKeyDown(event)) return;
                       if (event.key === "Escape") { setMentionQuery(null); setFollowUp(null); return; }
                       if (event.key !== "Enter" || event.shiftKey) return;
                       event.preventDefault();
-                      if (!followUp && !isOne && mentionQuery !== null && mentionOptions.length) insertMention(mentionOptions[0].name);
-                      else void sendSteer();
-                    }} className="max-h-44 min-h-14 min-w-0 flex-1 resize-none bg-transparent px-1 py-1 text-base leading-7 text-ink outline-none placeholder:text-ink-48 focus-visible:outline-none" />
-                    <button type="button" onClick={sendSteer} disabled={sending || Boolean(pendingApproval) || !steer.trim()} aria-label="发送消息" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-white hover:bg-primary-hover disabled:bg-parchment disabled:text-ink-48">{sending ? <SpinnerGap size={18} className="animate-spin" /> : <ArrowUp size={20} weight="bold" />}</button>
+                      void sendSteer();
+                    }} className="max-h-32 min-h-10 min-w-0 flex-1 resize-none bg-transparent px-1 py-1 text-base leading-6 text-ink outline-none placeholder:text-ink-40 focus-visible:outline-none" />
+                    <button type="button" onClick={sendSteer} disabled={sending || Boolean(pendingApproval) || !steer.trim()} aria-label={sending ? "等待回复" : pendingApproval ? "等待审批" : "发送消息"} className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-md transition-colors", sending || pendingApproval ? "bg-white text-ink-40" : "bg-primary text-white hover:bg-primary-hover", !steer.trim() && !sending && !pendingApproval && "bg-white text-ink-40")}>{sending ? <SpinnerGap size={17} className="animate-spin" /> : <ArrowUp size={19} weight="bold" />}</button>
                   </div>
-                  <div id="discussion-send-hint" className="mt-2 border-t border-divider-soft pt-2 text-fine text-ink-48" role="status">{pendingApproval ? "请先处理上方审批；可以继续编辑草稿。" : sending ? "正在等待回复；可以提前写下一条。" : "Enter 发送 · Shift+Enter 换行"}</div>
+                  <div id="discussion-send-hint" className="flex min-h-6 items-center gap-2 px-1.5 pt-2 text-fine" role="status">
+                    {sending && <SpinnerGap size={12} className="shrink-0 animate-spin text-primary" />}
+                    <span className={cn(pendingApproval ? "text-warning-ink" : sending ? "text-primary" : "text-ink-48")}>{composerStatusLabel.hint}</span>
+                  </div>
                 </div>
                 <div className="mt-2 flex justify-between text-fine text-ink-48"><span>{eventStream.reconnecting ? "正在重新连接…" : eventStream.connected ? "实时同步已连接" : "正在连接…"}</span><span>AI 模拟视角</span></div>
               </div>
