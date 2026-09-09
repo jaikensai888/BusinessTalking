@@ -27,9 +27,18 @@ export async function POST(req: Request) {
     : [];
   const rounds = Math.min(10, Math.max(1, Number(body.rounds ?? 5) || 5));
   const message = typeof body.message === "string" ? body.message.trim() : "";
+  // skillRevisionIds 未传（undefined）= 默认挂载全部已安装 revision（新装 skill 对所有新 session 生效）；
+  // 显式传空数组 = 用户明确不挂任何 skill。UI 显式选择则以其选择为准。
   const skillRevisionIds = Array.isArray(body.skillRevisionIds)
     ? body.skillRevisionIds.filter((x): x is string => typeof x === "string")
-    : [];
+    : body.skillRevisionIds === undefined
+      ? (
+          await prisma.skillRevision.findMany({
+            where: { packageRoot: { not: null } },
+            select: { id: true },
+          })
+        ).map((r) => r.id)
+      : [];
 
   if (!brief || brief.length > 10000) return err(40001, "brief 必填（1~10000 字符）", 400);
   if (personaIds.length < 1) return err(40001, "至少选择 1 个人格参与讨论", 400);

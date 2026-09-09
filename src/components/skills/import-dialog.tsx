@@ -134,13 +134,13 @@ export function ImportDialog({
           <Input
             value={command}
             onChange={(e) => setCommand(e.target.value)}
-            placeholder="npx skills add pricing-model"
+            placeholder="npx skills add blader/humanizer 或 npx --yes degit owner/repo 子目录"
             onKeyDown={(e) => {
               if (e.key === "Enter") execute();
             }}
           />
           <p className="text-fine text-warning">
-            ⚠ 将执行上方命令（最长 120 秒），请确认来源可信。仅支持以 npx 开头的命令。
+            ⚠ 将执行上方命令（最长 120 秒），请确认来源可信。仅支持以 npx 开头的命令；skills add 会自动转换为等效的 degit 下载。
           </p>
           {clientError && <p className="text-caption text-error">{clientError}</p>}
         </div>
@@ -159,13 +159,15 @@ export function ImportDialog({
           <Input
             value={command}
             onChange={(e) => setCommand(e.target.value)}
-            placeholder="npx skills add pricing-model"
+            placeholder="npx skills add blader/humanizer 或 npx --yes degit owner/repo 子目录"
             disabled={running}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !running) execute();
             }}
           />
-          <p className="text-fine text-warning">⚠ 将执行上方命令（最长 120 秒），请确认来源可信。仅支持以 npx 开头的命令。</p>
+          <p className="text-fine text-warning">
+            ⚠ 将执行上方命令（最长 120 秒），请确认来源可信。仅支持以 npx 开头的命令；skills add 会自动转换为等效的 degit 下载。
+          </p>
         </div>
 
         {clientError && <p className="text-caption text-error mb-3">{clientError}</p>}
@@ -192,7 +194,16 @@ export function ImportDialog({
               <div className="grid gap-3 mb-4">
                 <label className="text-caption font-semibold text-ink-80">解析结果（勾选入库）</label>
                 {job.candidates.length === 0 ? (
-                  <p className="text-caption text-ink-48">未在临时目录发现 SKILL.md 文件。</p>
+                  <div className="text-caption text-ink-48 grid gap-1">
+                    <p>未在临时目录发现 SKILL.md 文件。</p>
+                    {job.logs.some((l) => l.includes("destination directory is not empty")) && (
+                      <p className="text-warning">
+                        degit 因任务目录非空而中止：任务目录里已包含日志文件，请把下载目标改为一个子目录，例如
+                        <code className="font-mono mx-1">npx --yes degit blader/humanizer humanizer</code>
+                        （最后的 humanizer 是子目录名）。
+                      </p>
+                    )}
+                  </div>
                 ) : (
                   job.candidates.map((c) => (
                     <label

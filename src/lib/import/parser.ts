@@ -31,6 +31,27 @@ interface Frontmatter {
   version?: string;
 }
 
+/** YAML 块标量（| 或 >）起始标记 */
+const BLOCK_SCALAR_MARKERS = new Set(["|", "|-", "|+", ">", ">-", ">+"]);
+
+/** 解析一个 frontmatter 标量；块标量则收集后续缩进行（折行用空格连接） */
+function parseScalar(
+  value: string,
+  lines: string[],
+  i: number
+): { value: string; next: number } {
+  if (BLOCK_SCALAR_MARKERS.has(value)) {
+    const parts: string[] = [];
+    let j = i + 1;
+    while (j < lines.length && /^\s+\S/.test(lines[j])) {
+      parts.push(lines[j].trim());
+      j++;
+    }
+    return { value: parts.join(" "), next: j - 1 };
+  }
+  return { value: value.replace(/^["']|["']$/g, ""), next: i };
+}
+
 /** 解析 SKILL.md：YAML frontmatter（--- 分隔）+ 正文 */
 export function parseSkillFile(filePath: string): { fm: Frontmatter; body: string } {
   const raw = fs.readFileSync(filePath, "utf8");
@@ -42,14 +63,18 @@ export function parseSkillFile(filePath: string): { fm: Frontmatter; body: strin
       const fmText = trimmed.slice(3, end);
       const body = trimmed.slice(end + 4).trim();
       const fm: Frontmatter = {};
-      for (const line of fmText.split("\n")) {
-        const idx = line.indexOf(":");
+      const lines = fmText.split("\n");
+      for (let i = 0; i < lines.length; i++) {
+        const idx = lines[i].indexOf(":");
         if (idx === -1) continue;
-        const key = line.slice(0, idx).trim();
-        const value = line.slice(idx + 1).trim().replace(/^["']|["']$/g, "");
-        if (key === "name") fm.name = value;
-        if (key === "description") fm.description = value;
-        if (key === "version") fm.version = value;
+        const key = lines[i].slice(0, idx).trim();
+        const rawValue = lines[i].slice(idx + 1).trim();
+        if (key !== "name" && key !== "description" && key !== "version") continue;
+        const parsed = parseScalar(rawValue, lines, i);
+        if (key === "name") fm.name = parsed.value;
+        if (key === "description") fm.description = parsed.value;
+        if (key === "version") fm.version = parsed.value;
+        i = parsed.next;
       }
       return { fm, body };
     }

@@ -110,6 +110,8 @@ function DiscussionsContent() {
           }
         }
         setSkills(revs);
+        // 默认全选已安装 skill：新装技能（如 humanizer）对所有新讨论 session 自动生效，可手动取消
+        setSelectedSkills(revs.map((r) => r.id));
       });
   }, []);
 
